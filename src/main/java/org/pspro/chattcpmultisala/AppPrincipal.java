@@ -11,11 +11,12 @@ public class AppPrincipal extends Application {
 
     @Override
     public void start(Stage stage) throws IOException {
-        FXMLLoader fxmlLoader = new FXMLLoader(AppPrincipal.class.getResource("principal.fxml"));
+        // Cargar la pantalla de login en lugar del chat directamente
+        FXMLLoader fxmlLoader = new FXMLLoader(getClass().getResource("/org/pspro/chattcpmultisala/login.fxml"));
 
-        Scene scene = new Scene(fxmlLoader.load(), 800, 500);
+        Scene scene = new Scene(fxmlLoader.load(), 500, 400);
 
-        stage.setTitle("Cliente Chat TCP");
+        stage.setTitle("Chat TCP - Login");
         stage.setScene(scene);
 
         stage.setOnCloseRequest(event -> {

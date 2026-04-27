@@ -1,6 +1,7 @@
 package org.pspro.chattcpmultisala.common;
 
 import java.io.Serializable;
+import java.time.LocalDateTime;
 
 public class DatosMensaje implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -9,6 +10,7 @@ public class DatosMensaje implements Serializable {
     private String remitente;
     private String destino; // "GENERAL" para chat general
     private String contenido;
+    private LocalDateTime timestamp; // Hora de envío del mensaje
 
     // Metadatos cliente/servidor
     private boolean archivado;
@@ -36,6 +38,9 @@ public class DatosMensaje implements Serializable {
 
     public String getContenido() { return contenido; }
     public void setContenido(String contenido) { this.contenido = contenido; }
+
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
 
     public boolean isArchivado() { return archivado; }
     public void setArchivado(boolean archivado) { this.archivado = archivado; }

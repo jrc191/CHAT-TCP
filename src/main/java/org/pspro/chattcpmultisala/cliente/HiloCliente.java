@@ -1,61 +1,65 @@
 package org.pspro.chattcpmultisala.cliente;
 
 import javafx.application.Platform;
-import javafx.geometry.Pos;
-import javafx.scene.control.Label;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
-import java.io.DataInputStream;
+import org.pspro.chattcpmultisala.cliente.controladores.ChatController;
+import org.pspro.chattcpmultisala.common.DatosMensaje;
+
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.net.Socket;
+import java.util.Arrays;
+import java.util.List;
 
 public class HiloCliente extends Thread {
-    private Socket socket;
-    private VBox chatContainer;
-    private DataInputStream entrada;
 
-    public HiloCliente(Socket socket, VBox chatContainer) {
+    private final Socket socket;
+    private final ObjectInputStream entrada;
+    private final String nombreUsuarioLocal;
+    private final ChatController chatController;
+
+    // Se ha quitado el chatContainer de aquí, el Controller gestionará toda la vista
+    public HiloCliente(Socket socket, ObjectInputStream entrada,
+                       String nombreUsuarioLocal, ChatController chatController) {
         this.socket = socket;
-        this.chatContainer = chatContainer;
-        try {
-            this.entrada = new DataInputStream(socket.getInputStream());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        this.entrada = entrada;
+        this.nombreUsuarioLocal = nombreUsuarioLocal;
+        this.chatController = chatController;
     }
 
     @Override
     public void run() {
         try {
             while (true) {
-                // Esperamos a que llegue un mensaje del servidor
-                String mensajeRecibido = entrada.readUTF();
+                DatosMensaje mensaje = (DatosMensaje) entrada.readObject();
 
-                Platform.runLater(() -> {
+                switch (mensaje.getTipo()) {
+                    case LISTA_USUARIOS:
+                        String contenido = mensaje.getContenido();
+                        List<String> usuarios = contenido == null || contenido.isBlank()
+                                ? List.of()
+                                : Arrays.asList(contenido.split(","));
+                        chatController.actualizarListaUsuarios(usuarios);
+                        break;
 
-                    HBox contenedorMensaje = new HBox();
-                    VBox burbuja = new VBox();
+                    case MENSAJE_PRIVADO:
+                        // Si yo lo envié (el servidor me devuelve la copia), pertenece a la sala del "Destino"
+                        if (nombreUsuarioLocal.equals(mensaje.getRemitente())) {
+                            Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), true));
+                        } else {
+                            // Si lo recibo, pertenece a la sala del "Remitente"
+                            Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getRemitente(), false));
+                        }
+                        break;
 
-                    Label texto = new Label(mensajeRecibido);
-
-                    // Aplicar clases del CSS
-                    burbuja.getStyleClass().add("message-bubble");
-                    burbuja.getStyleClass().add("bubble-received"); // Por defecto recibido
-                    texto.getStyleClass().add("message-text");
-
-                    burbuja.getChildren().add(texto);
-                    contenedorMensaje.getChildren().add(burbuja);
-
-                    // Alineación a la izquierda (recibidos)
-                    contenedorMensaje.setAlignment(Pos.CENTER_LEFT);
-
-                    chatContainer.getChildren().add(contenedorMensaje);
-                });
+                    case MENSAJE_GENERAL:
+                    default:
+                        boolean esMio = nombreUsuarioLocal.equals(mensaje.getRemitente());
+                        Platform.runLater(() -> chatController.registrarMensaje(mensaje, "GENERAL", esMio));
+                        break;
+                }
             }
-        } catch (IOException e) {
-            Platform.runLater(() -> {
-                chatContainer.getChildren().add(new Label("--- Conexión perdida con el servidor ---"));
-            });
+        } catch (IOException | ClassNotFoundException e) {
+            Platform.runLater(() -> chatController.registrarMensajeSistema("--- Conexión perdida con el servidor ---"));
         }
     }
 }
