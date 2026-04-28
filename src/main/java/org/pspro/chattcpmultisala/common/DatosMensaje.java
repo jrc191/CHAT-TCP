@@ -24,8 +24,6 @@ public class DatosMensaje implements Serializable {
     // Para respuestas de login/registro
     private boolean success;
     private String reason;
-
-    // Para registro/login: campo password (solo para REGISTER/Login with credentials)
     private String password;
 
     public DatosMensaje() {}

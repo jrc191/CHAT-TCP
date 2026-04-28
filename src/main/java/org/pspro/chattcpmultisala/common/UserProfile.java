@@ -19,7 +19,7 @@ public class UserProfile implements Serializable {
     private LocalDateTime lastSeen;
     private String phoneNumber;
     private String email;
-    private String avatarColor;  // Color hexadecimal para avatar de fallback
+    private String avatarColor;
     private boolean verified;
     private int unreadCount;
 

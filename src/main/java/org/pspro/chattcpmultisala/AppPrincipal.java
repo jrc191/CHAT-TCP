@@ -10,9 +10,6 @@ import java.io.IOException;
 public class AppPrincipal extends Application {
 
     // ── Tamaños mínimos de la ventana ──────────────────────────────────────
-    // Por debajo de estos valores el layout se vería apretado.
-    // Con 3 paneles (sidebar 220 + chat 340 + perfil 240) el mínimo útil
-    // es 800 × 560, pero se puede ajustar libremente.
     private static final double MIN_WIDTH  = 800;
     private static final double MIN_HEIGHT = 560;
 

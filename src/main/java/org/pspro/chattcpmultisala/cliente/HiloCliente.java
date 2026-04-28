@@ -17,7 +17,6 @@ public class HiloCliente extends Thread {
     private final String nombreUsuarioLocal;
     private final ChatController chatController;
 
-    // Se ha quitado el chatContainer de aquí, el Controller gestionará toda la vista
     public HiloCliente(Socket socket, ObjectInputStream entrada,
                        String nombreUsuarioLocal, ChatController chatController) {
         this.socket = socket;

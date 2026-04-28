@@ -8,7 +8,7 @@ public class ServidorChat {
 
     public static void main(String[] args) {
         int puerto = 55555;
-        int numMaxConexiones = 10; // Valor por defecto
+        int numMaxConexiones = 10;
 
         // Procesar argumentos: -usuariosMaximos <numero>
         for (int i = 0; i < args.length; i++) {
