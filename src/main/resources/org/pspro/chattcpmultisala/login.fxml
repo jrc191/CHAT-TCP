@@ -7,61 +7,66 @@
 <?import javafx.scene.layout.VBox?>
 <?import javafx.scene.text.Font?>
 
-<VBox alignment="CENTER" prefHeight="400.0" prefWidth="500.0" spacing="20.0" style="-fx-background-color: #ecf0f1;" xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.pspro.chattcpmultisala.cliente.controladores.LoginController">
+<VBox alignment="CENTER" prefHeight="500.0" prefWidth="400.0" spacing="20.0"
+      style="-fx-background-color: white;"
+      stylesheets="@chat.css"
+      xmlns="http://javafx.com/javafx/21"
+      xmlns:fx="http://javafx.com/fxml/1"
+      fx:controller="org.pspro.chattcpmultisala.cliente.controladores.LoginController">
     <children>
-        <Label text="Chat TCP - MultiSala" textFill="#2c3e50">
-            <font>
-                <Font name="System Bold" size="28.0" />
-            </font>
-        </Label>
-        
-        <VBox alignment="CENTER" spacing="15.0" style="-fx-background-color: white; -fx-background-radius: 10; -fx-padding: 30;">
+
+        <!-- Título -->
+        <VBox alignment="CENTER" spacing="10.0">
             <children>
-                <Label text="Bienvenido" textFill="#2c3e50">
-                    <font>
-                        <Font name="System Bold" size="20.0" />
-                    </font>
+                <Label text="CHAT-TCP" textFill="#5085a8">
+                    <font><Font name="System Bold" size="36.0" /></font>
                 </Label>
-                
-                <Label fx:id="lblError" textFill="RED" visible="false">
-                    <font>
-                        <Font size="12.0" />
-                    </font>
-                </Label>
-                
-                <VBox spacing="10.0">
-                    <children>
-                        <Label text="Nombre de usuario:" textFill="#34495e">
-                            <font>
-                                <Font size="14.0" />
-                            </font>
-                        </Label>
-                        <TextField fx:id="txtNombreUsuario" promptText="Escribe tu nombre de usuario..." style="-fx-background-radius: 5; -fx-padding: 10;">
-                            <font>
-                                <Font size="14.0" />
-                            </font>
-                        </TextField>
-                    </children>
-                </VBox>
-                
-                <Button fx:id="btnEntrarInvitado" mnemonicParsing="false" onAction="#onEntrarInvitadoClick" prefWidth="250.0" style="-fx-background-color: #3498db; -fx-text-fill: white; -fx-background-radius: 5; -fx-padding: 12;" text="Entrar como Invitado">
-                    <font>
-                        <Font name="System Bold" size="14.0" />
-                    </font>
-                </Button>
-                
-                <Label text="(Solo podrás usar el chat general)" textFill="#7f8c8d">
-                    <font>
-                        <Font size="11.0" />
-                    </font>
+                <Label text="Bienvenido al chat" textFill="#888888">
+                    <font><Font size="16.0" /></font>
                 </Label>
             </children>
-            <VBox.margin>
-                <Insets />
-            </VBox.margin>
         </VBox>
+
+        <!-- Formulario -->
+        <VBox alignment="CENTER" maxWidth="300.0" spacing="16.0">
+            <children>
+
+                <!-- Error: invisible Y sin espacio por defecto -->
+                <Label fx:id="lblError" textFill="#e74c3c"
+                       visible="false" managed="false"
+                       wrapText="true" maxWidth="300.0">
+                    <font><Font size="12.0" /></font>
+                </Label>
+
+                <!-- Campo usuario -->
+                <TextField fx:id="txtNombreUsuario"
+                           onAction="#onEntrarInvitadoClick"
+                           promptText="Nombre de usuario"
+                           styleClass="text-field-round"
+                           maxWidth="300.0">
+                    <font><Font size="15.0" /></font>
+                </TextField>
+
+                <!-- Botón login — usa login-button, NO send-button -->
+                <Button fx:id="btnEntrarInvitado"
+                        maxWidth="300.0" prefHeight="44.0"
+                        mnemonicParsing="false"
+                        onAction="#onEntrarInvitadoClick"
+                        styleClass="login-button"
+                        text="ENTRAR">
+                    <font><Font name="System Bold" size="14.0" /></font>
+                    <padding><Insets bottom="12.0" left="12.0" right="12.0" top="12.0" /></padding>
+                </Button>
+
+                <Label text="Entrarás como invitado" textFill="#aaaaaa">
+                    <font><Font size="12.0" /></font>
+                </Label>
+
+            </children>
+        </VBox>
+
     </children>
     <padding>
-        <Insets bottom="40.0" left="40.0" right="40.0" top="40.0" />
+        <Insets bottom="50.0" left="50.0" right="50.0" top="50.0" />
     </padding>
 </VBox>

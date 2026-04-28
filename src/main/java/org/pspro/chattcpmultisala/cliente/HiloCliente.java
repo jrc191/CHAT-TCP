@@ -51,6 +51,20 @@ public class HiloCliente extends Thread {
                         }
                         break;
 
+                    case CREAR_CANAL:
+                        if (mensaje.isSuccess()) {
+                            chatController.agregarCanalLocal(mensaje.getDestino(), mensaje.getMiembros());
+                            Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), false));
+                        } else {
+                            Platform.runLater(() -> chatController.registrarMensajeSistema("Error en canal: " + mensaje.getReason()));
+                        }
+                        break;
+
+                    case MENSAJE_CANAL:
+                        boolean esMioCanal = nombreUsuarioLocal.equals(mensaje.getRemitente());
+                        Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), esMioCanal));
+                        break;
+
                     case MENSAJE_GENERAL:
                     default:
                         boolean esMio = nombreUsuarioLocal.equals(mensaje.getRemitente());

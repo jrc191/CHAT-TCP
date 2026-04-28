@@ -8,6 +8,9 @@ import java.net.Socket;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class HiloServidorChat extends Thread {
 
@@ -69,6 +72,15 @@ public class HiloServidorChat extends Thread {
                         break;
                     case MENSAJE_PRIVADO:
                         procesarMensajePrivado(mensaje);
+                        break;
+                    case CREAR_CANAL:
+                        procesarCrearCanal(mensaje);
+                        break;
+                    case ADD_MIEMBROS_CANAL:
+                        procesarAddMiembrosCanal(mensaje);
+                        break;
+                    case MENSAJE_CANAL:
+                        procesarMensajeCanal(mensaje);
                         break;
                     default:
                         System.out.println("Tipo no soportado: " + mensaje.getTipo());
@@ -247,6 +259,102 @@ public class HiloServidorChat extends Thread {
         // Copia al emisor (para mostrarlo en su UI)
         try { enviarObjeto(salida, mensaje); }
         catch (IOException ignored) {}
+    }
+
+    private void procesarCrearCanal(DatosMensaje mensaje) {
+        String nombreCanal = mensaje.getDestino();
+        List<String> miembros = mensaje.getMiembros();
+
+        if (nombreCanal == null || nombreCanal.isBlank()) {
+            enviarRespuestaError(TipoMensaje.CREAR_CANAL, "El nombre del canal no puede estar vacío.");
+            return;
+        }
+
+        if (miembros == null || miembros.isEmpty()) {
+            enviarRespuestaError(TipoMensaje.CREAR_CANAL, "No se puede crear un canal sin miembros.");
+            return;
+        }
+
+        if (infoh.existeCanal(nombreCanal)) {
+            enviarRespuestaError(TipoMensaje.CREAR_CANAL, "El canal '" + nombreCanal + "' ya existe.");
+            return;
+        }
+
+        infoh.agregarCanal(nombreCanal, miembros);
+        System.out.println("[CANAL] Creado canal: " + nombreCanal + " con miembros: " + miembros);
+
+        // Notificar a todos los miembros que han sido añadidos al canal
+        for (String miembro : miembros) {
+            notificarUnionCanal(miembro, nombreCanal, miembros, true);
+        }
+    }
+
+    private void procesarAddMiembrosCanal(DatosMensaje mensaje) {
+        String nombreCanal = mensaje.getDestino();
+        List<String> nuevosMiembros = mensaje.getMiembros();
+
+        if (!infoh.existeCanal(nombreCanal)) {
+            enviarRespuestaError(TipoMensaje.ADD_MIEMBROS_CANAL, "El canal no existe.");
+            return;
+        }
+
+        List<String> miembrosActuales = infoh.obtenerMiembrosCanal(nombreCanal);
+        Set<String> setMiembros = new HashSet<>(miembrosActuales);
+        
+        for (String m : nuevosMiembros) {
+            if (setMiembros.contains(m)) {
+                enviarRespuestaError(TipoMensaje.ADD_MIEMBROS_CANAL, "El usuario '" + m + "' ya está en el canal.");
+                continue;
+            }
+            if (setMiembros.add(m)) {
+                // Si es nuevo, le notificamos
+                notificarUnionCanal(m, nombreCanal, null, false);
+            }
+        }
+
+        infoh.agregarCanal(nombreCanal, List.copyOf(setMiembros));
+        System.out.println("[CANAL] Miembros añadidos a " + nombreCanal + ": " + nuevosMiembros);
+    }
+
+    private void notificarUnionCanal(String miembro, String nombreCanal, List<String> todosMiembros, boolean esCreacion) {
+        UsuarioConectado uc = infoh.obtenerUsuario(miembro);
+        if (uc != null) {
+            DatosMensaje notif = new DatosMensaje();
+            notif.setTipo(TipoMensaje.CREAR_CANAL);
+            notif.setDestino(nombreCanal);
+            notif.setRemitente("SISTEMA");
+            notif.setContenido(esCreacion ? "Has sido añadido al canal: " + nombreCanal : "Has sido invitado al canal: " + nombreCanal);
+            if (todosMiembros != null) notif.setMiembros(todosMiembros);
+            notif.setSuccess(true);
+            try {
+                enviarObjeto(uc.getSalida(), notif);
+            } catch (IOException e) {
+                System.err.println("Error enviando notif canal a " + miembro);
+            }
+        }
+    }
+
+    private void procesarMensajeCanal(DatosMensaje mensaje) {
+        String nombreCanal = mensaje.getDestino();
+        List<String> miembros = infoh.obtenerMiembrosCanal(nombreCanal);
+
+        if (miembros == null) {
+            enviarRespuestaError(TipoMensaje.MENSAJE_CANAL, "El canal '" + nombreCanal + "' no existe.");
+            return;
+        }
+
+        if (mensaje.getTimestamp() == null) mensaje.setTimestamp(LocalDateTime.now());
+
+        for (String miembro : miembros) {
+            UsuarioConectado uc = infoh.obtenerUsuario(miembro);
+            if (uc != null) {
+                try {
+                    enviarObjeto(uc.getSalida(), mensaje);
+                } catch (IOException e) {
+                    System.err.println("Error enviando mensaje canal a " + miembro);
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

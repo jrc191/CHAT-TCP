@@ -18,6 +18,9 @@ public class InfoHilos {
     // Mapa de usuarios conectados: nombreUsuario -> UsuarioConectado
     private Map<String, UsuarioConectado> usuariosConectados = new ConcurrentHashMap<>();
 
+    // Mapa de canales: nombreCanal -> Lista de nombres de usuario
+    private Map<String, List<String>> canales = new ConcurrentHashMap<>();
+
     public InfoHilos(int maximo) {
         this.maximo = maximo;
         this.actuales = 0;
@@ -113,5 +116,23 @@ public class InfoHilos {
     /** Devuelve una lista con los nombres de los usuarios actualmente conectados */
     public synchronized List<String> getNombresUsuarios() {
         return new ArrayList<>(usuariosConectados.keySet());
+    }
+
+    // ---- Gestión de Canales ----
+
+    public synchronized void agregarCanal(String nombreCanal, List<String> miembros) {
+        canales.put(nombreCanal, miembros);
+    }
+
+    public synchronized List<String> obtenerMiembrosCanal(String nombreCanal) {
+        return canales.get(nombreCanal);
+    }
+
+    public synchronized Map<String, List<String>> getCanales() {
+        return new ConcurrentHashMap<>(canales);
+    }
+
+    public synchronized boolean existeCanal(String nombreCanal) {
+        return canales.containsKey(nombreCanal);
     }
 }

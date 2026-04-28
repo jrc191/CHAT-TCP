@@ -20,6 +20,13 @@ public enum TipoMensaje {
     REGISTER_RESPONSE,  // respuesta al registro (success/fail)
 
     // ========================================
+    // GESTIÓN DE CANALES
+    // ========================================
+    CREAR_CANAL,
+    ADD_MIEMBROS_CANAL,
+    MENSAJE_CANAL,
+
+    // ========================================
     // SINCRONIZACIÓN DE ESTADO
     // ========================================
     LISTA_USUARIOS,     // servidor → clientes: lista actualizada de conectados

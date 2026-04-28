@@ -26,8 +26,6 @@ public class LoginController {
     @FXML public TextField txtNombreUsuario;
     @FXML public Button btnEntrarInvitado;
     @FXML public Label lblError;
-
-    // Campos opcionales: si no existen en el FXML simplemente quedan null
     @FXML public PasswordField txtPassword;
     @FXML public Button btnEntrarRegistrado;
 
@@ -77,55 +75,6 @@ public class LoginController {
     }
 
     // -------------------------------------------------------------------------
-    // LOGIN CON CUENTA  (botón opcional — solo si existe btnEntrarRegistrado en FXML)
-    // -------------------------------------------------------------------------
-
-    @FXML
-    public void onEntrarRegistradoClick(ActionEvent actionEvent) {
-        String nombre = txtNombreUsuario.getText().trim();
-        String pass = (txtPassword != null) ? txtPassword.getText() : "";
-
-        if (!validarNombre(nombre)) return;
-
-        if (pass.isEmpty()) {
-            mostrarError("Introduce una contraseña para acceder con cuenta.");
-            return;
-        }
-
-        lblError.setVisible(false);
-
-        try {
-            conectar();
-
-            DatosMensaje loginMsg = new DatosMensaje();
-            loginMsg.setTipo(TipoMensaje.LOGIN_REGISTER);
-            loginMsg.setRemitente(nombre);
-            loginMsg.setPassword(sha256(pass));
-
-            salida.writeObject(loginMsg);
-            salida.flush();
-
-            DatosMensaje respuesta = (DatosMensaje) entrada.readObject();
-
-            if (respuesta.isSuccess()) {
-                abrirVentanaChat(nombre);
-            } else {
-                mostrarError(respuesta.getReason());
-                cerrarConexion();
-            }
-
-        } catch (IOException e) {
-            mostrarError("No se pudo conectar al servidor.");
-            e.printStackTrace();
-            cerrarConexion();
-        } catch (ClassNotFoundException e) {
-            mostrarError("Error de protocolo.");
-            e.printStackTrace();
-            cerrarConexion();
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // ABRIR VENTANA DE CHAT
     // -------------------------------------------------------------------------
 
@@ -140,7 +89,7 @@ public class LoginController {
                 return;
             }
 
-            Scene scene = new Scene(loader.load(), 800, 500);
+            Scene scene = new Scene(loader.load(), 900, 600);
 
             ChatController chatController = loader.getController();
             chatController.inicializarConexion(socket, salida, entrada, nombre);
@@ -153,7 +102,7 @@ public class LoginController {
                 return;
             }
 
-            stage.setTitle("Chat TCP - " + nombre);
+            stage.setTitle("Telegram - " + nombre);
             stage.setScene(scene);
             stage.show();
 
@@ -205,6 +154,7 @@ public class LoginController {
     private void mostrarError(String mensaje) {
         lblError.setText(mensaje);
         lblError.setVisible(true);
+        lblError.setManaged(true);
     }
 
     private void cerrarConexion() {

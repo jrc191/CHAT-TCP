@@ -7,11 +7,11 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.*;
 import javafx.scene.input.InputMethodEvent;
+import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import org.pspro.chattcpmultisala.cliente.HiloCliente;
-import org.pspro.chattcpmultisala.common.DatosMensaje;
-import org.pspro.chattcpmultisala.common.TipoMensaje;
+import org.pspro.chattcpmultisala.common.*;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -30,6 +30,24 @@ public class ChatController {
     @FXML public Label lblTituloChat;
     @FXML public TextField txtBuscador;
     @FXML public ScrollPane scrollChat;
+    @FXML public AnchorPane profilePanel;
+    @FXML public HBox foldersContainer;
+    @FXML public Label userAvatar;
+    @FXML public Label userName;
+    @FXML public Label userStatus;
+    @FXML public Label profileAvatarBig;
+    @FXML public Label profileName;
+    @FXML public Label profileStatusLabel;
+    @FXML public Label profilePhone;
+    @FXML public Label profileEmail;
+    @FXML public Label profileBio;
+    
+    private boolean profilePanelVisible = false;
+    
+    // Profile and Folder Management
+    private ProfileManager profileManager;
+    private ChatFolderManager folderManager;
+    private UserProfile currentUserProfile;
 
     private Socket socket;
     private ObjectOutputStream salida;
@@ -38,6 +56,8 @@ public class ChatController {
     private String destinatarioActual = "GENERAL";
     private Map<String, List<Node>> historialesChat = new HashMap<>();
     private Set<String> chatsActivos = new LinkedHashSet<>();
+    private Set<String> canalesActivos = new HashSet<>();
+    private Map<String, List<String>> miembrosCanales = new HashMap<>();
     private List<String> usuariosEnLinea = new ArrayList<>();
 
     // -------------------------------------------------------------------------
@@ -54,18 +74,19 @@ public class ChatController {
         chatsActivos.add("GENERAL");
         historialesChat.put("GENERAL", new ArrayList<>());
 
+        // Inicializar gestores de perfiles y carpetas
+        inicializarGestoresPerfilesYCarpetas();
+
         HiloCliente hiloEscucha = new HiloCliente(socket, entrada, nombreUsuario, this);
         hiloEscucha.setDaemon(true);
         hiloEscucha.start();
 
-        // Listener para el buscador en tiempo real
         if (txtBuscador != null) {
             txtBuscador.textProperty().addListener((observable, oldValue, newValue) -> {
                 dibujarContactosActivos();
             });
         }
 
-        // --- Autoscroll---
         if (chatContainer != null && scrollChat != null) {
             chatContainer.heightProperty().addListener((observable, oldValue, newValue) -> {
                 scrollChat.setVvalue(1.0);
@@ -75,20 +96,24 @@ public class ChatController {
         dibujarContactosActivos();
     }
 
-    // -------------------------------------------------------------------------
-    // ENVÍO DE MENSAJES
-    // -------------------------------------------------------------------------
-
     @FXML
     public void onEnviarClick(ActionEvent actionEvent) {
         String contenido = txtMensaje.getText().trim();
         if (contenido.isEmpty() || salida == null) return;
 
-        boolean esPrivado = !"GENERAL".equals(destinatarioActual);
+        boolean esGeneral = "GENERAL".equals(destinatarioActual);
+        boolean esCanal = canalesActivos.contains(destinatarioActual);
 
         try {
             DatosMensaje mensaje = new DatosMensaje();
-            mensaje.setTipo(esPrivado ? TipoMensaje.MENSAJE_PRIVADO : TipoMensaje.MENSAJE_GENERAL);
+            if (esCanal) {
+                mensaje.setTipo(TipoMensaje.MENSAJE_CANAL);
+            } else if (esGeneral) {
+                mensaje.setTipo(TipoMensaje.MENSAJE_GENERAL);
+            } else {
+                mensaje.setTipo(TipoMensaje.MENSAJE_PRIVADO);
+            }
+
             mensaje.setRemitente(nombreUsuario);
             mensaje.setDestino(destinatarioActual);
             mensaje.setContenido(contenido);
@@ -100,9 +125,7 @@ public class ChatController {
                 salida.flush();
             }
 
-            // Los generales no rebotan al emisor, así que lo dibujamos localmente
-            // (Los privados SÍ rebotan desde el servidor, así que no los duplicamos aquí)
-            if (!esPrivado) {
+            if (esGeneral) {
                 registrarMensaje(mensaje, "GENERAL", true);
             }
 
@@ -117,74 +140,197 @@ public class ChatController {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // GESTIÓN DE LA LISTA LATERAL Y NUEVOS CHATS
-    // -------------------------------------------------------------------------
-
     public void actualizarListaUsuarios(List<String> usuarios) {
         this.usuariosEnLinea = usuarios;
-        // Solo actualizamos visualmente para refrescar si alguien se desconectó
         Platform.runLater(this::dibujarContactosActivos);
     }
 
     private void dibujarContactosActivos() {
         contactList.getChildren().clear();
 
-        // 1. Botón de Nuevo Chat (estilo WhatsApp)
         Button btnNuevoChat = new Button("➕ Nuevo Chat");
         btnNuevoChat.setMaxWidth(Double.MAX_VALUE);
-        btnNuevoChat.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; "
-                + "-fx-font-weight: bold; -fx-padding: 10; -fx-cursor: hand;");
+        btnNuevoChat.getStyleClass().add("contact-button");
+        btnNuevoChat.setStyle("-fx-text-fill: #5085a8; -fx-font-weight: bold;");
         btnNuevoChat.setOnAction(e -> mostrarDialogoNuevoChat());
         contactList.getChildren().add(btnNuevoChat);
 
-        // 2. Separador visual
-        Label separador = new Label(" Conversaciones");
-        separador.setStyle("-fx-text-fill: #bdc3c7; -fx-padding: 10 0 5 0; -fx-font-size: 11px;");
-        contactList.getChildren().add(separador);
+        Button btnNuevoCanal = new Button("📢 Nuevo Canal");
+        btnNuevoCanal.setMaxWidth(Double.MAX_VALUE);
+        btnNuevoCanal.getStyleClass().add("contact-button");
+        btnNuevoCanal.setStyle("-fx-text-fill: #5085a8; -fx-font-weight: bold;");
+        btnNuevoCanal.setOnAction(e -> mostrarDialogoNuevoCanal());
+        contactList.getChildren().add(btnNuevoCanal);
 
-        // --- NUEVO: Obtenemos el texto del buscador (en minúsculas para evitar problemas) ---
-        String textoBusqueda = "";
-        if (txtBuscador != null && txtBuscador.getText() != null) {
-            textoBusqueda = txtBuscador.getText().toLowerCase().trim();
+        if (canalesActivos.contains(destinatarioActual)) {
+            Button btnAddMiembros = new Button("👥 Añadir Miembros");
+            btnAddMiembros.setMaxWidth(Double.MAX_VALUE);
+            btnAddMiembros.getStyleClass().add("contact-button");
+            btnAddMiembros.setStyle("-fx-text-fill: #e67e22; -fx-font-weight: bold;");
+            btnAddMiembros.setOnAction(e -> mostrarDialogoAñadirMiembros(destinatarioActual));
+            contactList.getChildren().add(btnAddMiembros);
         }
 
-        // 3. Listar solo los chats activos que coincidan con la búsqueda
+        Label separador = new Label("CONVERSACIONES");
+        separador.setStyle("-fx-text-fill: #999999; -fx-padding: 15 15 5 15; -fx-font-size: 11px; -fx-font-weight: bold;");
+        contactList.getChildren().add(separador);
+
+        String textoBusqueda = (txtBuscador != null && txtBuscador.getText() != null) ? txtBuscador.getText().toLowerCase().trim() : "";
+
         for (String chat : chatsActivos) {
+            if (!textoBusqueda.isEmpty() && !chat.toLowerCase().contains(textoBusqueda)) continue;
 
-            // --- NUEVO: Lógica de filtrado ---
-            // Si el buscador tiene texto y el nombre del chat NO contiene ese texto, lo saltamos
-            if (!textoBusqueda.isEmpty() && !chat.toLowerCase().contains(textoBusqueda)) {
-                continue;
-            }
-
-            String etiqueta = chat.equals("GENERAL") ? "💬 General" : "👤 " + chat;
+            String etiqueta;
+            if (chat.equals("GENERAL")) etiqueta = "💬 Sala General";
+            else if (canalesActivos.contains(chat)) etiqueta = "📢 " + chat;
+            else etiqueta = "👤 " + chat;
+            
             Button btn = crearBotonContacto(etiqueta, chat);
-
-            // Resaltar el chat actual
             if (chat.equals(destinatarioActual)) {
-                btn.setStyle(btn.getStyle() + "-fx-background-color: #34495e; -fx-font-weight: bold;");
+                btn.getStyleClass().add("contact-button-active");
             }
             contactList.getChildren().add(btn);
         }
     }
 
+    private void mostrarDialogoNuevoCanal() {
+        String nombreCanal = "";
+        while (true) {
+            TextInputDialog nameDialog = new TextInputDialog(nombreCanal);
+            nameDialog.setTitle("Nuevo Canal");
+            nameDialog.setHeaderText("Crea un nuevo canal");
+            nameDialog.setContentText("Nombre del canal:");
+
+            Optional<String> result = nameDialog.showAndWait();
+            if (result.isEmpty()) return;
+
+            nombreCanal = result.get().trim();
+            if (nombreCanal.isBlank()) {
+                mostrarAlertaError("El nombre del canal no puede estar vacío.");
+                continue;
+            }
+
+            ListView<String> listView = new ListView<>();
+            listView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+            listView.getItems().addAll(usuariosEnLinea.stream().filter(u -> !u.equals(nombreUsuario)).toList());
+
+            Dialog<List<String>> dialog = new Dialog<>();
+            dialog.setTitle("Seleccionar Miembros");
+            dialog.setHeaderText("Selecciona los miembros para el canal: " + nombreCanal);
+            ButtonType okButtonType = new ButtonType("Crear", ButtonBar.ButtonData.OK_DONE);
+            dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);
+            dialog.getDialogPane().setContent(listView);
+            dialog.setResultConverter(db -> db == okButtonType ? new ArrayList<>(listView.getSelectionModel().getSelectedItems()) : null);
+
+            Optional<List<String>> miembrosResult = dialog.showAndWait();
+            if (miembrosResult.isEmpty()) continue;
+
+            List<String> miembros = miembrosResult.get();
+            if (miembros.isEmpty()) {
+                mostrarAlertaError("Debes seleccionar al menos un usuario para crear un canal.");
+                continue;
+            }
+
+            if (!miembros.contains(nombreUsuario)) miembros.add(nombreUsuario);
+
+            try {
+                DatosMensaje msg = new DatosMensaje();
+                msg.setTipo(TipoMensaje.CREAR_CANAL);
+                msg.setRemitente(nombreUsuario);
+                msg.setDestino(nombreCanal);
+                msg.setMiembros(miembros);
+                synchronized (salida) { salida.reset(); salida.writeObject(msg); salida.flush(); }
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+                break;
+            }
+        }
+    }
+
+    public void agregarCanalLocal(String nombreCanal, List<String> miembros) {
+        canalesActivos.add(nombreCanal);
+        chatsActivos.add(nombreCanal);
+        if (miembros != null) miembrosCanales.put(nombreCanal, new ArrayList<>(miembros));
+        Platform.runLater(this::dibujarContactosActivos);
+    }
+
+    public void actualizarMiembrosCanal(String nombreCanal, List<String> nuevosMiembros) {
+        List<String> actuales = miembrosCanales.computeIfAbsent(nombreCanal, k -> new ArrayList<>());
+        for (String m : nuevosMiembros) {
+            if (!actuales.contains(m)) actuales.add(m);
+        }
+    }
+
+    private void mostrarDialogoAñadirMiembros(String nombreCanal) {
+        List<String> actuales = miembrosCanales.getOrDefault(nombreCanal, new ArrayList<>());
+        while (true) {
+            ListView<String> listView = new ListView<>();
+            listView.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
+            
+            List<String> candidatos = usuariosEnLinea.stream().filter(u -> !actuales.contains(u)).toList();
+
+            if (candidatos.isEmpty()) {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Añadir Miembros");
+                alert.setHeaderText(null);
+                alert.setContentText("Todos los usuarios conectados ya están en este canal.");
+                alert.showAndWait();
+                return;
+            }
+
+            listView.getItems().addAll(candidatos);
+
+            Dialog<List<String>> dialog = new Dialog<>();
+            dialog.setTitle("Añadir Miembros");
+            dialog.setHeaderText("Añadir nuevos miembros al canal: " + nombreCanal);
+            ButtonType okButtonType = new ButtonType("Añadir", ButtonBar.ButtonData.OK_DONE);
+            dialog.getDialogPane().getButtonTypes().addAll(okButtonType, ButtonType.CANCEL);
+            dialog.getDialogPane().setContent(listView);
+            dialog.setResultConverter(db -> db == okButtonType ? new ArrayList<>(listView.getSelectionModel().getSelectedItems()) : null);
+
+            Optional<List<String>> result = dialog.showAndWait();
+            if (result.isEmpty()) return;
+
+            List<String> seleccionados = result.get();
+            if (seleccionados.isEmpty()) {
+                mostrarAlertaError("Debes seleccionar al menos un usuario.");
+                continue;
+            }
+
+            try {
+                DatosMensaje msg = new DatosMensaje();
+                msg.setTipo(TipoMensaje.ADD_MIEMBROS_CANAL);
+                msg.setRemitente(nombreUsuario);
+                msg.setDestino(nombreCanal);
+                msg.setMiembros(seleccionados);
+                synchronized (salida) { salida.reset(); salida.writeObject(msg); salida.flush(); }
+                return;
+            } catch (IOException e) {
+                e.printStackTrace();
+                break;
+            }
+        }
+    }
+
+    private void mostrarAlertaError(String mensaje) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Error");
+        alert.setHeaderText(null);
+        alert.setContentText(mensaje);
+        alert.showAndWait();
+    }
+
     private Button crearBotonContacto(String etiqueta, String destino) {
         Button btn = new Button(etiqueta);
         btn.setMaxWidth(Double.MAX_VALUE);
-        btn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; "
-                + "-fx-alignment: CENTER_LEFT; -fx-padding: 10; -fx-font-size: 14px; -fx-cursor: hand;");
-        
+        btn.getStyleClass().add("contact-button");
         btn.setOnAction(e -> cambiarDestinatario(destino));
         return btn;
     }
 
     private void mostrarDialogoNuevoChat() {
-        // Filtrar gente conectada que no seas tú y con la que no tengas chat ya
-        List<String> opciones = usuariosEnLinea.stream()
-                .filter(u -> !u.equals(nombreUsuario) && !chatsActivos.contains(u))
-                .toList();
-
+        List<String> opciones = usuariosEnLinea.stream().filter(u -> !u.equals(nombreUsuario) && !chatsActivos.contains(u)).toList();
         if (opciones.isEmpty()) {
             Alert alert = new Alert(Alert.AlertType.INFORMATION);
             alert.setTitle("Nuevo Chat");
@@ -193,12 +339,10 @@ public class ChatController {
             alert.showAndWait();
             return;
         }
-
         ChoiceDialog<String> dialog = new ChoiceDialog<>(opciones.get(0), opciones);
         dialog.setTitle("Nuevo Chat Privado");
         dialog.setHeaderText("Inicia una nueva conversación");
         dialog.setContentText("Selecciona un usuario:");
-
         dialog.showAndWait().ifPresent(seleccionado -> {
             chatsActivos.add(seleccionado);
             cambiarDestinatario(seleccionado);
@@ -208,71 +352,60 @@ public class ChatController {
     private void cambiarDestinatario(String destino) {
         destinatarioActual = destino;
         dibujarContactosActivos();
-
         if (lblTituloChat != null) {
-            if ("GENERAL".equals(destino)) {
-                lblTituloChat.setText("Sala de Chat General");
-            } else {
-                lblTituloChat.setText("Chat privado con: " + destino);
-            }
+            if ("GENERAL".equals(destino)) lblTituloChat.setText("Sala de Chat General");
+            else if (canalesActivos.contains(destino)) lblTituloChat.setText("Canal: " + destino);
+            else lblTituloChat.setText("Chat privado con: " + destino);
         }
-
-        // Limpiar pantalla y cargar el historial correspondiente
         chatContainer.getChildren().clear();
         List<Node> historial = historialesChat.getOrDefault(destino, new ArrayList<>());
         chatContainer.getChildren().addAll(historial);
         scrollAlFinal();
     }
 
-    // -------------------------------------------------------------------------
-    // RENDERIZADO DE MENSAJES UNIFICADO
-    // -------------------------------------------------------------------------
-
     public void registrarMensaje(DatosMensaje mensaje, String salaAsociada, boolean esPropio) {
-        // Si alguien nos abre privado de repente, lo añadimos a activos
         if (!salaAsociada.equals("GENERAL") && !chatsActivos.contains(salaAsociada)) {
+            if (mensaje.getTipo() == TipoMensaje.MENSAJE_CANAL) canalesActivos.add(salaAsociada);
             chatsActivos.add(salaAsociada);
             Platform.runLater(this::dibujarContactosActivos);
         }
-
         HBox contenedorMensaje = new HBox();
         boolean esSistema = "SISTEMA".equals(mensaje.getRemitente());
-
         if (esSistema) {
             contenedorMensaje.setAlignment(Pos.CENTER);
+            contenedorMensaje.setPadding(new javafx.geometry.Insets(5, 0, 5, 0));
             Label texto = new Label(mensaje.getContenido());
-            texto.setStyle("-fx-font-size: 12px; -fx-text-fill: #7f8c8d; -fx-font-style: italic;");
+            texto.setStyle("-fx-font-size: 12px; -fx-text-fill: white; -fx-background-color: rgba(0,0,0,0.2); -fx-background-radius: 12; -fx-padding: 4 12 4 12;");
             contenedorMensaje.getChildren().add(texto);
-            
         } else {
             contenedorMensaje.setAlignment(esPropio ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
-            
             VBox burbuja = new VBox();
             burbuja.getStyleClass().addAll("message-bubble", esPropio ? "bubble-sent" : "bubble-received");
-
-            // Solo mostramos quién lo envió si NO es mío y estamos en el GENERAL
-            // (En privados ya sabes con quién hablas)
-            if (!esPropio && salaAsociada.equals("GENERAL")) {
+            
+            if (!esPropio && (salaAsociada.equals("GENERAL") || canalesActivos.contains(salaAsociada))) {
                 Label nombreRemitente = new Label(mensaje.getRemitente());
                 nombreRemitente.getStyleClass().add("sender-name");
                 burbuja.getChildren().add(nombreRemitente);
             }
-
+            
             Label texto = new Label(mensaje.getContenido());
             texto.getStyleClass().add("message-text");
             texto.setWrapText(true);
-
+            
             Label hora = new Label(formatearHora(mensaje.getTimestamp()));
             hora.getStyleClass().add("timestamp");
-
+            
             burbuja.getChildren().addAll(texto, hora);
             contenedorMensaje.getChildren().add(burbuja);
+            
+            // Margenes
+            if (esPropio) {
+                HBox.setMargin(burbuja, new javafx.geometry.Insets(0, 0, 0, 50));
+            } else {
+                HBox.setMargin(burbuja, new javafx.geometry.Insets(0, 50, 0, 0));
+            }
         }
-
-        // 1. Guardar en el historial de la sala en memoria
         historialesChat.computeIfAbsent(salaAsociada, k -> new ArrayList<>()).add(contenedorMensaje);
-
-        // 2. Si estamos viendo esa sala actualmente, lo inyectamos visualmente
         if (destinatarioActual.equals(salaAsociada)) {
             Platform.runLater(() -> {
                 chatContainer.getChildren().add(contenedorMensaje);
@@ -285,26 +418,17 @@ public class ChatController {
         DatosMensaje msg = new DatosMensaje();
         msg.setRemitente("SISTEMA");
         msg.setContenido(texto);
-        // Lo mandamos al chat actual para informar de la desconexión
         registrarMensaje(msg, destinatarioActual, false);
     }
 
     private void scrollAlFinal() {
-        Platform.runLater(() -> {
-            if (scrollChat != null) {
-                scrollChat.setVvalue(1.0);
-            }
-        });
+        Platform.runLater(() -> { if (scrollChat != null) scrollChat.setVvalue(1.0); });
     }
 
     private String formatearHora(LocalDateTime timestamp) {
         if (timestamp == null) return "";
         return String.format("%02d:%02d", timestamp.getHour(), timestamp.getMinute());
     }
-
-    // -------------------------------------------------------------------------
-    // CERRAR APP
-    // -------------------------------------------------------------------------
 
     @FXML
     public void onCerrarClick(ActionEvent actionEvent) {
@@ -314,20 +438,221 @@ public class ChatController {
                 despedida.setTipo(TipoMensaje.MENSAJE_GENERAL);
                 despedida.setRemitente(nombreUsuario);
                 despedida.setContenido("*****");
-                synchronized (salida) {
-                    salida.reset();
-                    salida.writeObject(despedida);
-                    salida.flush();
-                }
+                synchronized (salida) { salida.reset(); salida.writeObject(despedida); salida.flush(); }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        } catch (IOException e) { e.printStackTrace(); }
         System.exit(0);
     }
 
     @FXML
-    public void buscando(InputMethodEvent inputMethodEvent) {
-        // TODO: filtrar lista de contactos
+    public void buscando(InputMethodEvent inputMethodEvent) { }
+
+    @FXML
+    public void onToggleProfilePanel(ActionEvent event) {
+        if (profilePanel != null) {
+            profilePanelVisible = !profilePanelVisible;
+            profilePanel.setVisible(profilePanelVisible);
+            profilePanel.setManaged(profilePanelVisible);
+        }
+    }
+
+
+    // ====== PROFILE MANAGEMENT ======
+
+    /**
+     * Inicializa los gestores de perfil y carpetas
+     */
+    public void inicializarGestoresPerfilesYCarpetas() {
+        this.profileManager = new ProfileManager();
+        this.folderManager = new ChatFolderManager();
+        
+        // Crear o cargar perfil del usuario actual
+        UserProfile perfil = profileManager.getProfileByUsername(nombreUsuario);
+        if (perfil == null) {
+            perfil = profileManager.createProfile(nombreUsuario, nombreUsuario);
+        }
+        
+        this.currentUserProfile = perfil;
+        profileManager.setCurrentProfile(perfil);
+        
+        actualizarPanelPerfil();
+        inicializarCarpetas();
+    }
+
+    /**
+     * Actualiza la información del perfil en el panel
+     */
+    private void actualizarPanelPerfil() {
+        if (currentUserProfile == null) return;
+        
+        Platform.runLater(() -> {
+            String iniciales = currentUserProfile.getAvatarInitials();
+            
+            // Actualizar encabezado del sidebar
+            if (userAvatar != null) userAvatar.setText(iniciales);
+            if (userName != null) userName.setText(currentUserProfile.getDisplayName());
+            if (userStatus != null) userStatus.setText(currentUserProfile.getStatusText());
+            
+            // Actualizar panel de perfil
+            if (profileAvatarBig != null) profileAvatarBig.setText(iniciales);
+            if (profileName != null) profileName.setText(currentUserProfile.getDisplayName());
+            if (profileStatusLabel != null) profileStatusLabel.setText(currentUserProfile.getStatusText());
+            if (profilePhone != null) profilePhone.setText(currentUserProfile.getPhoneNumber() != null ? currentUserProfile.getPhoneNumber() : "No especificado");
+            if (profileEmail != null) profileEmail.setText(currentUserProfile.getEmail() != null ? currentUserProfile.getEmail() : "No especificado");
+            if (profileBio != null) profileBio.setText(currentUserProfile.getBio() != null ? currentUserProfile.getBio() : "Sin biografía");
+        });
+    }
+
+    /**
+     * Actualiza el estado del usuario
+     */
+    public void actualizarEstadoUsuario(String nuevoEstado) {
+        if (currentUserProfile != null) {
+            currentUserProfile.setStatus(nuevoEstado);
+            profileManager.updateProfile(currentUserProfile);
+            actualizarPanelPerfil();
+        }
+    }
+
+    /**
+     * Actualiza la información del perfil actual
+     */
+    public void actualizarInformacionPerfil(String displayName, String bio, String phone, String email) {
+        if (currentUserProfile != null) {
+            currentUserProfile.setDisplayName(displayName);
+            currentUserProfile.setBio(bio);
+            currentUserProfile.setPhoneNumber(phone);
+            currentUserProfile.setEmail(email);
+            profileManager.updateProfile(currentUserProfile);
+            actualizarPanelPerfil();
+        }
+    }
+
+    // ====== FOLDER MANAGEMENT ======
+
+    /**
+     * Inicializa las carpetas en la UI
+     */
+    private void inicializarCarpetas() {
+        if (foldersContainer == null) return;
+        
+        Platform.runLater(() -> {
+            foldersContainer.getChildren().clear();
+            List<ChatFolder> carpetas = folderManager.getAllFolders();
+            
+            for (ChatFolder carpeta : carpetas) {
+                Button btnCarpeta = crearBotonCarpeta(carpeta);
+                foldersContainer.getChildren().add(btnCarpeta);
+            }
+        });
+    }
+
+    /**
+     * Crea un botón para una carpeta
+     */
+    private Button crearBotonCarpeta(ChatFolder carpeta) {
+        Button btn = new Button();
+        btn.setText(carpeta.getIcon() + " " + carpeta.getName());
+        btn.setStyle(
+            "-fx-background-color: transparent; " +
+            "-fx-text-fill: #5085a8; " +
+            "-fx-border-color: transparent; " +
+            "-fx-padding: 6 12 6 12; " +
+            "-fx-font-size: 12; " +
+            "-fx-cursor: hand;"
+        );
+        
+        int unreadCount = carpeta.getUnreadCount();
+        if (unreadCount > 0) {
+            btn.setText(btn.getText() + " (" + unreadCount + ")");
+        }
+        
+        btn.setOnAction(e -> seleccionarCarpeta(carpeta.getId()));
+        
+        // Resaltar carpeta actual
+        if (carpeta.getId().equals(folderManager.getCurrentFolderId())) {
+            btn.setStyle(btn.getStyle() + "-fx-border-color: #5085a8; -fx-border-width: 0 0 2 0;");
+        }
+        
+        return btn;
+    }
+
+    /**
+     * Selecciona una carpeta y filtra los chats
+     */
+    public void seleccionarCarpeta(String folderId) {
+        folderManager.setCurrentFolder(folderId);
+        ChatFolder carpetaSeleccionada = folderManager.getCurrentFolder();
+        
+        if (carpetaSeleccionada != null) {
+            System.out.println("Carpeta seleccionada: " + carpetaSeleccionada.getName());
+            System.out.println("Chats en carpeta: " + carpetaSeleccionada.getChatIds().size());
+            
+            // Actualizar UI de chats según la carpeta seleccionada
+            actualizarListaChatsSegunCarpeta(folderId);
+            inicializarCarpetas(); // Redibujar carpetas para mostrar selección
+        }
+    }
+
+    /**
+     * Actualiza la lista de chats según la carpeta seleccionada
+     */
+    private void actualizarListaChatsSegunCarpeta(String folderId) {
+        List<String> chatsEnCarpeta = folderManager.getChatsInFolder(folderId);
+        
+        Platform.runLater(() -> {
+            // Filtrar contactList para mostrar solo chats en la carpeta
+            contactList.getChildren().stream()
+                .filter(node -> node instanceof Button && !((Button)node).getText().startsWith("➕") && !((Button)node).getText().startsWith("📢"))
+                .forEach(node -> {
+                    Button btn = (Button) node;
+                    String chatName = extraerNombreChat(btn.getText());
+                    btn.setDisable(!chatsEnCarpeta.contains(chatName));
+                    btn.setOpacity(chatsEnCarpeta.contains(chatName) ? 1.0 : 0.5);
+                });
+        });
+    }
+
+    /**
+     * Extrae el nombre del chat del texto del botón
+     */
+    private String extraerNombreChat(String textoBoton) {
+        return textoBoton.replaceAll("^[^\\p{L}]+", "").trim();
+    }
+
+    /**
+     * Agrega un chat a una carpeta
+     */
+    public void agregarChatACarpeta(String chatId, String folderId) {
+        folderManager.addChatToFolder(chatId, folderId);
+    }
+
+    /**
+     * Mueve un chat de una carpeta a otra
+     */
+    public void moverChatACarpeta(String chatId, String fromFolderId, String toFolderId) {
+        folderManager.moveChatToFolder(chatId, fromFolderId, toFolderId);
+        actualizarListaChatsSegunCarpeta(folderManager.getCurrentFolderId());
+    }
+
+    /**
+     * Obtiene el gestor de carpetas
+     */
+    public ChatFolderManager getFolderManager() {
+        return folderManager;
+    }
+
+    /**
+     * Obtiene el gestor de perfiles
+     */
+    public ProfileManager getProfileManager() {
+        return profileManager;
+    }
+
+    /**
+     * Obtiene el perfil actual del usuario
+     */
+    public UserProfile getCurrentUserProfile() {
+        return currentUserProfile;
     }
 }

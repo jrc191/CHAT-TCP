@@ -1,45 +1,241 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   chat.css  —  Sistema de diseño Material Design 3 para ChatTCP
+   Colores principales:
+     Primary:   #005f9e    Surface:   #f9f9f9
+     Outline:   #707882    Error:     #ba1a1a
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Raíz / Reset ─────────────────────────────────────────────────────── */
 .root {
-    -fx-font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+    -fx-font-family: 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    -fx-font-size: 14px;
+    -fx-background-color: #f9f9f9;
 }
 
-/* Burbuja base */
+/* ─── SplitPane ─────────────────────────────────────────────────────────── */
+.split-pane {
+    -fx-background-color: #f9f9f9;
+    -fx-padding: 0;
+}
+
+.split-pane-divider {
+    -fx-background-color: #e2e2e2;
+    -fx-padding: 0 1 0 1;
+}
+
+/* ─── ScrollPane: bordes transparentes ─────────────────────────────────── */
+.scroll-pane {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.scroll-pane > .viewport {
+    -fx-background-color: transparent;
+}
+
+/* Scrollbar delgada (6px) ─────── */
+.scroll-bar:vertical {
+    -fx-pref-width: 6px;
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical .thumb {
+    -fx-background-color: #c0c7d3;
+    -fx-background-radius: 3;
+}
+
+.scroll-bar:vertical .thumb:hover {
+    -fx-background-color: #707882;
+}
+
+.scroll-bar:vertical .increment-button,
+.scroll-bar:vertical .decrement-button {
+    -fx-pref-height: 0;
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical .increment-arrow,
+.scroll-bar:vertical .decrement-arrow {
+    -fx-shape: "";
+    -fx-pref-height: 0;
+}
+
+/* ─── Botones de contacto ────────────────────────────────────────────────── */
+.contact-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: #1a1c1c;
+    -fx-font-size: 13px;
+    -fx-alignment: CENTER_LEFT;
+    -fx-padding: 10 14 10 14;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-cursor: hand;
+    -fx-border-color: transparent;
+}
+
+.contact-button:hover {
+    -fx-background-color: #eeeeee;
+}
+
+.contact-button-active {
+    -fx-background-color: #d1e4ff;
+    -fx-text-fill: #005f9e;
+    -fx-font-weight: bold;
+}
+
+/* ─── Burbujas de mensajes ────────────────────────────────────────────────── */
 .message-bubble {
-    -fx-background-radius: 15px;
-    -fx-padding: 8px 12px 5px 12px; /* Top Right Bottom Left */
-    -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.1), 3, 0, 1, 1);
-    -fx-max-width: 350px; /* Ancho máximo de la burbuja */
+    -fx-background-radius: 14;
+    -fx-border-radius: 14;
+    -fx-padding: 8 12 8 12;
+    -fx-max-width: 520;
+    -fx-min-width: 60;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.07), 4, 0, 0, 2);
 }
 
-/* Burbuja Enviada */
 .bubble-sent {
-    -fx-background-color: #dcf8c6;
-    -fx-background-radius: 15px 0px 15px 15px;
+    -fx-background-color: #005f9e;
 }
 
-/* Burbuja Recibida*/
 .bubble-received {
     -fx-background-color: #ffffff;
-    -fx-background-radius: 0px 15px 15px 15px;
 }
 
-/* Nombre del remitente */
-.sender-name {
-    -fx-font-weight: bold;
+.message-text {
+    -fx-font-size: 14px;
+    -fx-wrap-text: true;
+}
+
+.bubble-sent .message-text {
+    -fx-text-fill: #ffffff;
+}
+
+.bubble-received .message-text {
+    -fx-text-fill: #1a1c1c;
+}
+
+.timestamp {
     -fx-font-size: 11px;
-    -fx-text-fill: #e67e22;
+    -fx-padding: 2 0 0 0;
+}
+
+.bubble-sent .timestamp {
+    -fx-text-fill: rgba(255,255,255,0.75);
+}
+
+.bubble-received .timestamp {
+    -fx-text-fill: #707882;
+}
+
+.sender-name {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #005f9e;
     -fx-padding: 0 0 2 0;
 }
 
-/* Cuerpo del mensaje */
-.message-text {
+/* ─── TextField estilo pill ────────────────────────────────────────────── */
+.text-field-round {
+    -fx-background-color: #eeeeee;
+    -fx-background-radius: 20;
+    -fx-border-radius: 20;
+    -fx-border-color: transparent;
+    -fx-padding: 8 14 8 14;
     -fx-font-size: 14px;
-    -fx-text-fill: #303030;
 }
 
-/* Hora del mensaje */
-.timestamp {
-    -fx-font-size: 10px;
-    -fx-text-fill: #999999;
-    -fx-padding: 2 0 0 0;
-    -fx-alignment: CENTER_RIGHT;
+.text-field-round:focused {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #005f9e;
+    -fx-border-width: 1.5;
+    -fx-effect: dropshadow(gaussian, rgba(0,95,158,0.2), 6, 0, 0, 0);
 }
+
+/* ─── Inputs genéricos ──────────────────────────────────────────────────── */
+.text-field {
+    -fx-background-color: #eeeeee;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: transparent;
+    -fx-padding: 8 12 8 12;
+}
+
+.text-field:focused {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #005f9e;
+    -fx-border-width: 1.5;
+}
+
+/* ─── Botones primarios ────────────────────────────────────────────────── */
+.button {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-cursor: hand;
+}
+
+.button:hover {
+    -fx-background-color: #eeeeee;
+    -fx-background-radius: 8;
+}
+
+/* ─── Labels de sistema (mensajes de estado) ────────────────────────────── */
+.system-message {
+    -fx-text-fill: #ffffff;
+    -fx-background-color: rgba(0,0,0,0.2);
+    -fx-background-radius: 12;
+    -fx-padding: 4 12 4 12;
+    -fx-font-size: 12px;
+}
+
+/* ─── Separador de conversaciones ─────────────────────────────────────── */
+.conversations-separator {
+    -fx-text-fill: #999999;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 10 14 4 14;
+}
+
+/* ─── Panel de perfil ────────────────────────────────────────────────────── */
+.profile-panel {
+    -fx-background-color: #ffffff;
+}
+
+/* ─── Área de input ─────────────────────────────────────────────────────── */
+.input-area {
+    -fx-background-color: #ffffff;
+    -fx-border-color: #e2e2e2;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 10 14 10 14;
+}
+
+/* ─── Botón enviar (circular, usado en el chat) ────────────────────────── */
+.send-button {
+    -fx-background-color: #005f9e;
+    -fx-background-radius: 21;
+    -fx-text-fill: white;
+    -fx-font-size: 15;
+    -fx-cursor: hand;
+    -fx-min-width: 42;
+    -fx-min-height: 42;
+    -fx-max-width: 42;
+    -fx-max-height: 42;
+}
+
+.send-button:hover  { -fx-background-color: #1278c3; }
+.send-button:pressed { -fx-background-color: #00497b; }
+
+/* ─── Botón primario ancho (usado en login) ────────────────────────────── */
+.login-button {
+    -fx-background-color: #005f9e;
+    -fx-background-radius: 8;
+    -fx-text-fill: white;
+    -fx-font-size: 14;
+    -fx-font-weight: bold;
+    -fx-cursor: hand;
+    -fx-max-width: Infinity;
+}
+
+.login-button:hover  { -fx-background-color: #1278c3; }
+.login-button:pressed { -fx-background-color: #00497b; }
