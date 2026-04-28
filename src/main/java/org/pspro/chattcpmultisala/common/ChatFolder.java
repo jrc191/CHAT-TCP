@@ -150,34 +150,6 @@ public class ChatFolder implements Serializable {
         return folder;
     }
 
-    public static ChatFolder createFavoritesFolder() {
-        ChatFolder folder = new ChatFolder("favorites", "Favoritos", "⭐");
-        folder.setColor("#894d00");
-        folder.setDisplayOrder(2);
-        return folder;
-    }
-
-    public static ChatFolder createWorkFolder() {
-        ChatFolder folder = new ChatFolder("work", "Trabajo", "💼");
-        folder.setColor("#1278c3");
-        folder.setDisplayOrder(3);
-        return folder;
-    }
-
-    public static ChatFolder createPersonalFolder() {
-        ChatFolder folder = new ChatFolder("personal", "Personal", "👤");
-        folder.setColor("#56624b");
-        folder.setDisplayOrder(4);
-        return folder;
-    }
-
-    public static ChatFolder createChannelsFolder() {
-        ChatFolder folder = new ChatFolder("channels", "Canales", "📢");
-        folder.setColor("#ad6200");
-        folder.setDisplayOrder(5);
-        return folder;
-    }
-
     @Override
     public String toString() {
         return "ChatFolder{" +

@@ -11,7 +11,7 @@ public class UsuarioConectado {
     private String nombreUsuario;
     private Socket socket;
     private ObjectOutputStream salida;
-    private boolean esRegistrado; // true si tiene cuenta, false si es anónimo
+    private boolean esRegistrado; // a futuro, implementar registro.
 
     public UsuarioConectado(String nombreUsuario, Socket socket, ObjectOutputStream salida, boolean esRegistrado) {
         this.nombreUsuario = nombreUsuario;

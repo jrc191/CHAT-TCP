@@ -26,10 +26,6 @@ public class ChatFolderManager {
     private void initializePredefinedFolders() {
         addFolder(ChatFolder.createAllChatsFolder());
         addFolder(ChatFolder.createUnreadFolder());
-        addFolder(ChatFolder.createFavoritesFolder());
-        addFolder(ChatFolder.createWorkFolder());
-        addFolder(ChatFolder.createPersonalFolder());
-        addFolder(ChatFolder.createChannelsFolder());
     }
 
     /**
@@ -62,7 +58,7 @@ public class ChatFolderManager {
      */
     public List<ChatFolder> getCustomFolders() {
         return folders.values().stream()
-                .filter(f -> !f.isDefault() && !f.getId().equals("unread") && !f.getId().equals("favorites") && !f.getId().equals("channels"))
+                .filter(f -> !f.isDefault() && !f.getId().equals("unread"))
                 .sorted(Comparator.comparingInt(ChatFolder::getDisplayOrder))
                 .collect(Collectors.toList());
     }

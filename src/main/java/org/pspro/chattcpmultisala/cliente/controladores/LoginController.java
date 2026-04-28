@@ -6,7 +6,6 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.stage.Stage;
 import org.pspro.chattcpmultisala.common.DatosMensaje;
@@ -16,26 +15,16 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 public class LoginController {
 
-    // Campos obligatorios en login.fxml
     @FXML public TextField txtNombreUsuario;
     @FXML public Button btnEntrarInvitado;
     @FXML public Label lblError;
-    @FXML public PasswordField txtPassword;
-    @FXML public Button btnEntrarRegistrado;
 
     private Socket socket;
     private ObjectOutputStream salida;
     private ObjectInputStream entrada;
-
-    // -------------------------------------------------------------------------
-    // LOGIN ANÓNIMO  (botón principal del FXML actual)
-    // -------------------------------------------------------------------------
 
     @FXML
     public void onEntrarInvitadoClick(ActionEvent actionEvent) {
@@ -63,20 +52,12 @@ public class LoginController {
                 cerrarConexion();
             }
 
-        } catch (IOException e) {
-            mostrarError("No se pudo conectar al servidor. ¿Está arrancado?");
-            e.printStackTrace();
-            cerrarConexion();
-        } catch (ClassNotFoundException e) {
-            mostrarError("Error de protocolo al leer respuesta.");
+        } catch (IOException | ClassNotFoundException e) {
+            mostrarError("No se pudo conectar al servidor.");
             e.printStackTrace();
             cerrarConexion();
         }
     }
-
-    // -------------------------------------------------------------------------
-    // ABRIR VENTANA DE CHAT
-    // -------------------------------------------------------------------------
 
     private void abrirVentanaChat(String nombre) {
         try {
@@ -84,7 +65,7 @@ public class LoginController {
                     getClass().getResource("/org/pspro/chattcpmultisala/principal.fxml"));
 
             if (loader.getLocation() == null) {
-                mostrarError("No se encontró principal.fxml en el classpath.");
+                mostrarError("No se encontró principal.fxml.");
                 cerrarConexion();
                 return;
             }
@@ -94,39 +75,17 @@ public class LoginController {
             ChatController chatController = loader.getController();
             chatController.inicializarConexion(socket, salida, entrada, nombre);
 
-            // Obtener el Stage desde cualquier botón que exista
-            Stage stage = obtenerStage();
-            if (stage == null) {
-                mostrarError("Error interno: no se pudo obtener la ventana.");
-                cerrarConexion();
-                return;
-            }
-
-            stage.setTitle("Telegram - " + nombre);
+            Stage stage = (Stage) btnEntrarInvitado.getScene().getWindow();
+            stage.setTitle("ChatTCP - " + nombre);
             stage.setScene(scene);
             stage.show();
 
         } catch (IOException e) {
-            mostrarError("Error al cargar la ventana del chat: " + e.getMessage());
+            mostrarError("Error al cargar la ventana del chat.");
             e.printStackTrace();
             cerrarConexion();
         }
     }
-
-    /** Obtiene el Stage desde el primer botón disponible */
-    private Stage obtenerStage() {
-        if (btnEntrarInvitado != null && btnEntrarInvitado.getScene() != null) {
-            return (Stage) btnEntrarInvitado.getScene().getWindow();
-        }
-        if (btnEntrarRegistrado != null && btnEntrarRegistrado.getScene() != null) {
-            return (Stage) btnEntrarRegistrado.getScene().getWindow();
-        }
-        return null;
-    }
-
-    // -------------------------------------------------------------------------
-    // UTILIDADES
-    // -------------------------------------------------------------------------
 
     private void conectar() throws IOException {
         socket = new Socket("localhost", 55555);
@@ -144,10 +103,6 @@ public class LoginController {
             mostrarError("El nombre debe tener al menos 3 caracteres.");
             return false;
         }
-        if (nombre.length() > 20) {
-            mostrarError("El nombre no puede tener más de 20 caracteres.");
-            return false;
-        }
         return true;
     }
 
@@ -162,17 +117,5 @@ public class LoginController {
         try { if (salida != null)  salida.close();  } catch (IOException ignored) {}
         try { if (socket != null)  socket.close();  } catch (IOException ignored) {}
         socket = null; salida = null; entrada = null;
-    }
-
-    public static String sha256(String input) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (byte b : hash) hex.append(String.format("%02x", b));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 no disponible", e);
-        }
     }
 }

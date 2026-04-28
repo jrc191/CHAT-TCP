@@ -44,23 +44,23 @@ public class HiloServidorChat extends Thread {
     @Override
     public void run() {
         try {
-            // PASO 1: Rechazar si el servidor está lleno
+            // Rechazar si el servidor está lleno
             if (!procesarLogin()) {
                 return;
             }
 
             loginExitoso = true;
 
-            // PASO 2: Notificar entrada y difundir lista de usuarios
+            // Notificar entrada y difundir lista de usuarios
             String entradaMsg = nombreUsuario + " se ha unido al chat.";
             infoh.agregarMensaje("[SISTEMA] " + entradaMsg);
             enviarNotificacionATodos(entradaMsg);
             difundirListaUsuarios();
 
-            // PASO 4: Bucle principal
             while (true) {
                 DatosMensaje mensaje = (DatosMensaje) this.entrada.readObject();
 
+                //salida con *****
                 if (mensaje.getTipo() == TipoMensaje.MENSAJE_GENERAL
                         && "*****".equals(mensaje.getContenido())) {
                     break;
@@ -101,12 +101,10 @@ public class HiloServidorChat extends Thread {
 
     private boolean procesarLogin() {
         try {
-            // 1. El cliente nos envía su petición de entrada
             DatosMensaje loginMsg = (DatosMensaje) this.entrada.readObject();
             DatosMensaje respuesta = new DatosMensaje();
             respuesta.setTipo(TipoMensaje.LOGIN_RESPONSE);
 
-            // 2. NUEVO: Ahora comprobamos si el servidor está lleno
             if (infoh.getActuales() > infoh.getMaximo()) {
                 respuesta.setSuccess(false);
                 respuesta.setReason("Servidor lleno. Inténtalo más tarde.");
@@ -114,14 +112,11 @@ public class HiloServidorChat extends Thread {
                 return false;
             }
 
-            // 3. Si hay hueco, procedemos normal
             if (loginMsg.getTipo() == TipoMensaje.LOGIN_ANON) {
                 return procesarLoginAnonimo(loginMsg, respuesta);
-            } else if (loginMsg.getTipo() == TipoMensaje.LOGIN_REGISTER) {
-                return procesarLoginRegistrado(loginMsg, respuesta);
             } else {
                 respuesta.setSuccess(false);
-                respuesta.setReason("Tipo de login no reconocido.");
+                respuesta.setReason("Solo se permite acceso anónimo.");
                 enviarObjeto(salida, respuesta);
                 return false;
             }
@@ -160,55 +155,7 @@ public class HiloServidorChat extends Thread {
         respuesta.setRemitente(nombreUsuario);
         enviarObjeto(salida, respuesta);
 
-        System.out.println("[LOGIN-ANON] " + nombreUsuario
-                + " | Conectados: " + infoh.getActuales() + "/" + infoh.getMaximo());
-        return true;
-    }
-
-    private boolean procesarLoginRegistrado(DatosMensaje loginMsg, DatosMensaje respuesta)
-            throws IOException {
-        String usuario = loginMsg.getRemitente();
-        String hash = loginMsg.getPassword();
-
-        if (usuario == null || hash == null) {
-            respuesta.setSuccess(false);
-            respuesta.setReason("Credenciales incompletas.");
-            enviarObjeto(salida, respuesta);
-            return false;
-        }
-
-        if (infoh.existeUsuario(usuario)) {
-            respuesta.setSuccess(false);
-            respuesta.setReason("El usuario '" + usuario + "' ya está conectado.");
-            enviarObjeto(salida, respuesta);
-            return false;
-        }
-
-        boolean esNuevo = !authManager.exists(usuario);
-        if (esNuevo) {
-            authManager.register(usuario, hash);
-            System.out.println("[REGISTER] Nuevo usuario: " + usuario);
-        } else {
-            if (!authManager.validate(usuario, hash)) {
-                respuesta.setSuccess(false);
-                respuesta.setReason("Contraseña incorrecta.");
-                enviarObjeto(salida, respuesta);
-                return false;
-            }
-        }
-
-        this.nombreUsuario = usuario;
-        this.esRegistrado = true;
-
-        infoh.agregarUsuario(nombreUsuario,
-                new UsuarioConectado(nombreUsuario, socket, salida, true));
-
-        respuesta.setSuccess(true);
-        respuesta.setRemitente(nombreUsuario);
-        respuesta.setReason(esNuevo ? "Cuenta creada." : "Bienvenido de nuevo.");
-        enviarObjeto(salida, respuesta);
-
-        System.out.println("[LOGIN-REG] " + nombreUsuario
+        System.out.println("[LOGIN] " + nombreUsuario
                 + " | Conectados: " + infoh.getActuales() + "/" + infoh.getMaximo());
         return true;
     }
@@ -398,8 +345,7 @@ public class HiloServidorChat extends Thread {
     }
 
     /**
-     * Thread-safe: synchronized + reset() previenen corrupción cuando varios
-     * hilos comparten el mismo ObjectOutputStream.
+     * Para sincronizar objetos: mensajes, users...
      */
     private void enviarObjeto(ObjectOutputStream oos, DatosMensaje msg) throws IOException {
         synchronized (oos) {

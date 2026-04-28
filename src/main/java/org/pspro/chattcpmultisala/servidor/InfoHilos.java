@@ -10,9 +10,7 @@ public class InfoHilos {
     private int actuales;            // Clientes conectados actualmente
     private int conexiones;          // Total histórico de conexiones (nunca decrece)
     private int maximo;              // Máximo permitido
-    private StringBuilder mensajes;  // Historial acumulado del chat
-
-    // Array de sockets requerido por el enunciado: tabla[maximo]
+    private StringBuilder mensajes;  // Historial
     private Socket[] tabla;
 
     // Mapa de usuarios conectados: nombreUsuario -> UsuarioConectado
@@ -29,7 +27,6 @@ public class InfoHilos {
         this.tabla = new Socket[maximo];  // inicializado con el máximo permitido
     }
 
-    // ---- Gestión del array tabla[] (requerido por el enunciado) ----
 
     /**
      * Almacena el socket del cliente en la posición indicada del array tabla[].

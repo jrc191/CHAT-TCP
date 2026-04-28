@@ -346,7 +346,7 @@ input:focus, textarea:focus {
 .min-w-0 { min-width: 0; }
 .min-h-\[44px\] { min-height: 44px; }
 .min-w-\[20px\] { min-width: 20px; }
-.max-w-\[80%\] { max-width: 80%; }
+.max-w-\[80\%\] { max-width: 80%; }
 
 /* Object Fit */
 .object-cover { object-fit: cover; }

@@ -47,7 +47,7 @@
                     <font><Font size="15.0" /></font>
                 </TextField>
 
-                <!-- Botón login — usa login-button, NO send-button -->
+                <!-- Botón login -->
                 <Button fx:id="btnEntrarInvitado"
                         maxWidth="300.0" prefHeight="44.0"
                         mnemonicParsing="false"

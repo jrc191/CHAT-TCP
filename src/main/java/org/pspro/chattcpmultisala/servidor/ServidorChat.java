@@ -8,14 +8,26 @@ public class ServidorChat {
 
     public static void main(String[] args) {
         int puerto = 55555;
-        int numMaxConexiones = 2;
+        int numMaxConexiones = 10; // Valor por defecto
+
+        // Procesar argumentos: -usuariosMaximos <numero>
+        for (int i = 0; i < args.length; i++) {
+            if ("-usuariosMaximos".equalsIgnoreCase(args[i]) && i + 1 < args.length) {
+                try {
+                    numMaxConexiones = Integer.parseInt(args[i + 1]);
+                } catch (NumberFormatException e) {
+                    System.err.println("Error: El valor de -usuariosMaximos debe ser un número entero.");
+                }
+            }
+        }
 
         InfoHilos infoh = new InfoHilos(numMaxConexiones);
 
         try (ServerSocket servidor = new ServerSocket(puerto)) {
 
             System.out.println("Servidor iniciado en puerto " + puerto);
-            System.out.println("Esperando conexiones (máximo " + numMaxConexiones + " usuarios simultáneos)...");
+            System.out.println("Configuración: máximo " + numMaxConexiones + " usuarios simultáneos.");
+            System.out.println("Esperando conexiones...");
 
             while (!Thread.currentThread().isInterrupted()) {
 

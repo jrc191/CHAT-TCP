@@ -59,6 +59,7 @@ public class ChatController {
     private Set<String> canalesActivos = new HashSet<>();
     private Map<String, List<String>> miembrosCanales = new HashMap<>();
     private List<String> usuariosEnLinea = new ArrayList<>();
+    private Set<String> chatsConMensajesNuevos = new HashSet<>();
 
     // -------------------------------------------------------------------------
     // INICIALIZACIÓN
@@ -176,15 +177,35 @@ public class ChatController {
         contactList.getChildren().add(separador);
 
         String textoBusqueda = (txtBuscador != null && txtBuscador.getText() != null) ? txtBuscador.getText().toLowerCase().trim() : "";
+        String currentFolderId = folderManager.getCurrentFolderId();
+        List<String> chatsEnCarpeta = folderManager.getChatsInFolder(currentFolderId);
 
         for (String chat : chatsActivos) {
+            // Filtro de búsqueda
             if (!textoBusqueda.isEmpty() && !chat.toLowerCase().contains(textoBusqueda)) continue;
+
+            // Filtro de carpeta
+            boolean visible = false;
+            if ("all".equals(currentFolderId)) {
+                visible = true;
+            } else if ("unread".equals(currentFolderId)) {
+                visible = chatsConMensajesNuevos.contains(chat);
+            } else {
+                visible = chatsEnCarpeta.contains(chat);
+            }
+
+            if (!visible) continue;
 
             String etiqueta;
             if (chat.equals("GENERAL")) etiqueta = "💬 Sala General";
             else if (canalesActivos.contains(chat)) etiqueta = "📢 " + chat;
             else etiqueta = "👤 " + chat;
             
+            // Si tiene mensajes nuevos y no es el actual, añadir un indicador visual
+            if (chatsConMensajesNuevos.contains(chat) && !chat.equals(destinatarioActual)) {
+                etiqueta += " 🔔";
+            }
+
             Button btn = crearBotonContacto(etiqueta, chat);
             if (chat.equals(destinatarioActual)) {
                 btn.getStyleClass().add("contact-button-active");
@@ -351,6 +372,12 @@ public class ChatController {
 
     private void cambiarDestinatario(String destino) {
         destinatarioActual = destino;
+        
+        // Al entrar en un chat, quitamos la marca de "nuevo mensaje"
+        if (chatsConMensajesNuevos.remove(destino)) {
+            actualizarUIUnread();
+        }
+
         dibujarContactosActivos();
         if (lblTituloChat != null) {
             if ("GENERAL".equals(destino)) lblTituloChat.setText("Sala de Chat General");
@@ -363,12 +390,28 @@ public class ChatController {
         scrollAlFinal();
     }
 
+    private void actualizarUIUnread() {
+        folderManager.updateFolderUnreadCount("unread", chatsConMensajesNuevos.size());
+        inicializarCarpetas();
+        // Redibujamos la lista de contactos para que se apliquen los filtros de carpeta (como el de unread)
+        dibujarContactosActivos();
+    }
+
     public void registrarMensaje(DatosMensaje mensaje, String salaAsociada, boolean esPropio) {
         if (!salaAsociada.equals("GENERAL") && !chatsActivos.contains(salaAsociada)) {
             if (mensaje.getTipo() == TipoMensaje.MENSAJE_CANAL) canalesActivos.add(salaAsociada);
             chatsActivos.add(salaAsociada);
+            // Sincronizar con el gestor de carpetas
+            folderManager.addChatToFolder(salaAsociada, "all");
             Platform.runLater(this::dibujarContactosActivos);
         }
+
+        // Si el mensaje no es propio y no estamos en ese chat, marcar como no leído
+        if (!esPropio && !destinatarioActual.equals(salaAsociada)) {
+            chatsConMensajesNuevos.add(salaAsociada);
+            Platform.runLater(this::actualizarUIUnread);
+        }
+
         HBox contenedorMensaje = new HBox();
         boolean esSistema = "SISTEMA".equals(mensaje.getRemitente());
         if (esSistema) {
@@ -585,39 +628,10 @@ public class ChatController {
         ChatFolder carpetaSeleccionada = folderManager.getCurrentFolder();
         
         if (carpetaSeleccionada != null) {
-            System.out.println("Carpeta seleccionada: " + carpetaSeleccionada.getName());
-            System.out.println("Chats en carpeta: " + carpetaSeleccionada.getChatIds().size());
-            
-            // Actualizar UI de chats según la carpeta seleccionada
-            actualizarListaChatsSegunCarpeta(folderId);
+            // Dibujar la lista de contactos aplicando el nuevo filtro de carpeta
+            dibujarContactosActivos();
             inicializarCarpetas(); // Redibujar carpetas para mostrar selección
         }
-    }
-
-    /**
-     * Actualiza la lista de chats según la carpeta seleccionada
-     */
-    private void actualizarListaChatsSegunCarpeta(String folderId) {
-        List<String> chatsEnCarpeta = folderManager.getChatsInFolder(folderId);
-        
-        Platform.runLater(() -> {
-            // Filtrar contactList para mostrar solo chats en la carpeta
-            contactList.getChildren().stream()
-                .filter(node -> node instanceof Button && !((Button)node).getText().startsWith("➕") && !((Button)node).getText().startsWith("📢"))
-                .forEach(node -> {
-                    Button btn = (Button) node;
-                    String chatName = extraerNombreChat(btn.getText());
-                    btn.setDisable(!chatsEnCarpeta.contains(chatName));
-                    btn.setOpacity(chatsEnCarpeta.contains(chatName) ? 1.0 : 0.5);
-                });
-        });
-    }
-
-    /**
-     * Extrae el nombre del chat del texto del botón
-     */
-    private String extraerNombreChat(String textoBoton) {
-        return textoBoton.replaceAll("^[^\\p{L}]+", "").trim();
     }
 
     /**
@@ -632,7 +646,7 @@ public class ChatController {
      */
     public void moverChatACarpeta(String chatId, String fromFolderId, String toFolderId) {
         folderManager.moveChatToFolder(chatId, fromFolderId, toFolderId);
-        actualizarListaChatsSegunCarpeta(folderManager.getCurrentFolderId());
+        dibujarContactosActivos();
     }
 
     /**

@@ -25,19 +25,12 @@ public class AppPrincipal extends Application {
         FXMLLoader fxmlLoader = new FXMLLoader(
                 getClass().getResource("/org/pspro/chattcpmultisala/login.fxml"));
 
-        // La escena de login NO necesita ser grande
         Scene scene = new Scene(fxmlLoader.load(), 420, 520);
 
-        stage.setTitle("Telegram");
+        stage.setTitle("ChatTCP");
         stage.setScene(scene);
-
-        // ── Restricciones de tamaño ────────────────────────────────────────
-        // Se aplican al Stage para que afecten a cualquier escena que se cargue
         stage.setMinWidth(MIN_WIDTH);
         stage.setMinHeight(MIN_HEIGHT);
-
-        // Cuando se abra la ventana del chat (desde LoginController) el Stage
-        // ya tendrá estos mínimos; el FXML ocupa el 100 % del espacio.
         stage.setOnCloseRequest(event -> System.exit(0));
 
         stage.show();
