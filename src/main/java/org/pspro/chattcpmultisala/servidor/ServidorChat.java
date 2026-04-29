@@ -40,7 +40,7 @@ public class ServidorChat {
                 }
 
                 // Almacenar socket en tabla[] usando el índice de conexiones actual
-                // (antes de incrementar, para que sirva como índice 0-based)
+                // (antes de incrementar)
                 infoh.anadirATabla(socketCliente, infoh.getConexiones());
 
                 // Incrementar actuales y conexiones ANTES de lanzar el hilo

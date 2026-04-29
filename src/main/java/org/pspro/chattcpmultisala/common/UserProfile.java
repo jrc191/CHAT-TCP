@@ -15,7 +15,7 @@ public class UserProfile implements Serializable {
     private String bio;
     private String avatarUrl;
     private String avatarInitials;
-    private String status;  // "online", "away", "busy", "offline"
+    private String status;
     private LocalDateTime lastSeen;
     private String phoneNumber;
     private String email;

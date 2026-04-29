@@ -13,10 +13,10 @@ public class InfoHilos {
     private StringBuilder mensajes;  // Historial
     private Socket[] tabla;
 
-    // Mapa de usuarios conectados: nombreUsuario -> UsuarioConectado
+    // usuarios conectados: nombreUsuario -> UsuarioConectado
     private Map<String, UsuarioConectado> usuariosConectados = new ConcurrentHashMap<>();
 
-    // Mapa de canales: nombreCanal -> Lista de nombres de usuario
+    // canales: nombreCanal -> Lista de nombres de usuario
     private Map<String, List<String>> canales = new ConcurrentHashMap<>();
 
     public InfoHilos(int maximo) {

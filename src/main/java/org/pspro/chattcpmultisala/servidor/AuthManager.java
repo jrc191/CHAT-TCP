@@ -30,7 +30,6 @@ public class AuthManager {
                     users.put(k, p.getProperty(k));
                 }
             } else {
-                // Solo crear directorio padre si existe (ruta relativa puede no tenerlo)
                 Path parent = dbFile.getParent();
                 if (parent != null) {
                     Files.createDirectories(parent);

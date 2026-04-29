@@ -43,8 +43,6 @@ public class ChatController {
     @FXML public Label profileBio;
     
     private boolean profilePanelVisible = false;
-    
-    // Profile and Folder Management
     private ProfileManager profileManager;
     private ChatFolderManager folderManager;
     private UserProfile currentUserProfile;
@@ -75,7 +73,6 @@ public class ChatController {
         chatsActivos.add("GENERAL");
         historialesChat.put("GENERAL", new ArrayList<>());
 
-        // Inicializar gestores de perfiles y carpetas
         inicializarGestoresPerfilesYCarpetas();
 
         HiloCliente hiloEscucha = new HiloCliente(socket, entrada, nombreUsuario, this);
@@ -499,9 +496,6 @@ public class ChatController {
         }
     }
 
-
-    // ====== PROFILE MANAGEMENT ======
-
     /**
      * Inicializa los gestores de perfil y carpetas
      */
@@ -571,8 +565,6 @@ public class ChatController {
         }
     }
 
-    // ====== FOLDER MANAGEMENT ======
-
     /**
      * Inicializa las carpetas en la UI
      */
@@ -628,7 +620,7 @@ public class ChatController {
         ChatFolder carpetaSeleccionada = folderManager.getCurrentFolder();
         
         if (carpetaSeleccionada != null) {
-            // Dibujar la lista de contactos aplicando el nuevo filtro de carpeta
+            // lista de contactos aplicando el filtro de carpeta
             dibujarContactosActivos();
             inicializarCarpetas(); // Redibujar carpetas para mostrar selección
         }

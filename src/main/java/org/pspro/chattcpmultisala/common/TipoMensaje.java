@@ -14,10 +14,10 @@ public enum TipoMensaje {
     // ========================================
     // GESTIÓN DE CONEXIÓN (Cliente → Servidor)
     // ========================================
-    LOGIN_ANON,         // petición de login anónimo
-    LOGIN_REGISTER,     // petición de login con registro (usuario+contraseña)
-    LOGIN_RESPONSE,     // respuesta del servidor al login (success/fail)
-    REGISTER_RESPONSE,  // respuesta al registro (success/fail)
+    LOGIN_ANON,
+    LOGIN_REGISTER,
+    LOGIN_RESPONSE,
+    REGISTER_RESPONSE,
 
     // ========================================
     // GESTIÓN DE CANALES
@@ -29,7 +29,7 @@ public enum TipoMensaje {
     // ========================================
     // SINCRONIZACIÓN DE ESTADO
     // ========================================
-    LISTA_USUARIOS,     // servidor → clientes: lista actualizada de conectados
+    LISTA_USUARIOS,
 
     ARCHIVE_CHAT,
 }
