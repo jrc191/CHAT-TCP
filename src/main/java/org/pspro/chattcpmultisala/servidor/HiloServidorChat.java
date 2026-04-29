@@ -14,11 +14,6 @@ import java.util.Set;
 
 public class HiloServidorChat extends Thread {
 
-    // Ruta absoluta (user.dir = directorio de trabajo de la JVM)
-    // → getParent() nunca será null, AuthManager no peta
-    private static final AuthManager authManager =
-            new AuthManager(Paths.get(System.getProperty("user.dir"), "usuarios.properties"));
-
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     private Socket socket;
@@ -26,7 +21,6 @@ public class HiloServidorChat extends Thread {
     private ObjectInputStream entrada;
     private ObjectOutputStream salida;
     private String nombreUsuario;
-    private boolean esRegistrado;
     private boolean loginExitoso = false;
 
     public HiloServidorChat(Socket s, InfoHilos infoh) {
@@ -146,7 +140,6 @@ public class HiloServidorChat extends Thread {
         }
 
         this.nombreUsuario = nombreSolicitado;
-        this.esRegistrado = false;
 
         infoh.agregarUsuario(nombreUsuario,
                 new UsuarioConectado(nombreUsuario, socket, salida, false));

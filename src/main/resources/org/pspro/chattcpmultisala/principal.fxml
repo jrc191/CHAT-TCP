@@ -8,15 +8,6 @@
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.VBox?>
 
-<!--
-    principal.fxml
-    Raíz: HBox de 3 columnas.
-    · Sidebar     : 280 px fijos
-    · Chat        : HBox.hgrow="ALWAYS"  (crece con la ventana)
-    · Panel perfil: 300 px, visible=false + managed=false por defecto
-                   → no ocupa espacio hasta que se abre con el botón ℹ
--->
-
 <HBox prefHeight="640" prefWidth="960" spacing="0" stylesheets="@chat.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.pspro.chattcpmultisala.cliente.controladores.ChatController">
 
     <!-- ═══════════════ SIDEBAR (280 px fijo) ═══════════════ -->
@@ -28,7 +19,7 @@
             <VBox spacing="2" HBox.hgrow="ALWAYS">
                 <Label fx:id="userName" maxWidth="Infinity" prefHeight="41.0" prefWidth="158.0" style="-fx-font-size: 14; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Usuario" />
             </VBox>
-            <Button fx:id="cerrarAppBtn" onAction="#onCerrarClick" style="-fx-background-color: transparent; -fx-text-fill: #707882; -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 4 8 4 8;" text="✕" />
+            <Button fx:id="cerrarAppBtn" onAction="#onCerrarClick" prefWidth="44.0" style="-fx-background-color: transparent; -fx-text-fill: #707882; -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 4 8 4 8;" text="✕" />
         </HBox>
 
         <!-- Buscador -->
