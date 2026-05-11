@@ -3,6 +3,7 @@ package org.pspro.chattcpmultisala.cliente;
 import javafx.application.Platform;
 import org.pspro.chattcpmultisala.cliente.controladores.ChatController;
 import org.pspro.chattcpmultisala.common.DatosMensaje;
+import org.pspro.chattcpmultisala.common.TipoMensaje;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -10,19 +11,26 @@ import java.net.Socket;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Hilo receptor del cliente. Escucha mensajes del servidor en bucle.
+ *
+ * Novedades:
+ *  - Maneja ENVIAR_ARCHIVO, ELIMINAR_ARCHIVO, BORRAR_MENSAJE.
+ *  - Maneja BANEAR_USUARIO, SUSPENDER_CANAL, PROMOVER_TEMPORAL, REVOCAR_PROMOCION.
+ */
 public class HiloCliente extends Thread {
 
-    private final Socket socket;
+    private final Socket        socket;
     private final ObjectInputStream entrada;
-    private final String nombreUsuarioLocal;
+    private final String        nombreUsuarioLocal;
     private final ChatController chatController;
 
     public HiloCliente(Socket socket, ObjectInputStream entrada,
                        String nombreUsuarioLocal, ChatController chatController) {
-        this.socket = socket;
-        this.entrada = entrada;
+        this.socket             = socket;
+        this.entrada            = entrada;
         this.nombreUsuarioLocal = nombreUsuarioLocal;
-        this.chatController = chatController;
+        this.chatController     = chatController;
     }
 
     @Override
@@ -32,47 +40,101 @@ public class HiloCliente extends Thread {
                 DatosMensaje mensaje = (DatosMensaje) entrada.readObject();
 
                 switch (mensaje.getTipo()) {
-                    case LISTA_USUARIOS:
+
+                    case LISTA_USUARIOS -> {
                         String contenido = mensaje.getContenido();
-                        List<String> usuarios = contenido == null || contenido.isBlank()
+                        List<String> usuarios = (contenido == null || contenido.isBlank())
                                 ? List.of()
                                 : Arrays.asList(contenido.split(","));
                         chatController.actualizarListaUsuarios(usuarios);
-                        break;
+                    }
 
-                    case MENSAJE_PRIVADO:
-                        // Si yo lo envié (el servidor me devuelve la copia), pertenece a la sala del "Destino"
+                    case MENSAJE_PRIVADO -> {
                         if (nombreUsuarioLocal.equals(mensaje.getRemitente())) {
                             Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), true));
                         } else {
-                            // Si lo recibo, pertenece a la sala del "Remitente"
                             Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getRemitente(), false));
                         }
-                        break;
+                    }
 
-                    case CREAR_CANAL:
+                    case CREAR_CANAL -> {
                         if (mensaje.isSuccess()) {
                             chatController.agregarCanalLocal(mensaje.getDestino(), mensaje.getMiembros());
                             Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), false));
                         } else {
-                            Platform.runLater(() -> chatController.registrarMensajeSistema("Error en canal: " + mensaje.getReason()));
+                            Platform.runLater(() -> chatController.registrarMensajeSistema(
+                                    "Error en canal: " + mensaje.getReason()));
                         }
-                        break;
+                    }
 
-                    case MENSAJE_CANAL:
+                    case MENSAJE_CANAL -> {
                         boolean esMioCanal = nombreUsuarioLocal.equals(mensaje.getRemitente());
                         Platform.runLater(() -> chatController.registrarMensaje(mensaje, mensaje.getDestino(), esMioCanal));
-                        break;
+                    }
 
-                    case MENSAJE_GENERAL:
-                    default:
+                    // ── Archivos ─────────────────────────────────────────────
+                    case ENVIAR_ARCHIVO -> {
+                        boolean esPropio = nombreUsuarioLocal.equals(mensaje.getRemitente());
+                        chatController.registrarArchivoEnUI(mensaje, esPropio);
+                    }
+
+                    case ELIMINAR_ARCHIVO -> {
+                        String aid = mensaje.getArchivoId();
+                        if (aid != null) {
+                            Platform.runLater(() -> chatController.eliminarBurbujaLocal(aid, mensaje.getDestino()));
+                        }
+                    }
+
+                    // ── Borrar mensaje propio ─────────────────────────────────
+                    case BORRAR_MENSAJE -> {
+                        String mid = mensaje.getMensajeId();
+                        if (mid != null) {
+                            Platform.runLater(() -> chatController.eliminarBurbujaLocal(mid, mensaje.getDestino()));
+                        }
+                    }
+
+                    // ── Moderación ────────────────────────────────────────────
+                    case BANEAR_USUARIO ->
+                        Platform.runLater(() -> chatController.registrarMensajeSistema(
+                                "[Moderación] " + mensaje.getContenido()));
+
+                    case SUSPENDER_CANAL ->
+                        Platform.runLater(() -> chatController.registrarMensajeSistema(
+                                "[Canal] " + mensaje.getContenido()));
+
+                    case PROMOVER_TEMPORAL ->
+                        Platform.runLater(() -> chatController.registrarMensajeSistema(
+                                "⭐ " + mensaje.getContenido()));
+
+                    case REVOCAR_PROMOCION ->
+                        Platform.runLater(() -> chatController.registrarMensajeSistema(
+                                "ℹ️ " + mensaje.getContenido()));
+
+                    case REQUEST_PROFILE -> {
+                        // Un moderador nos pide el perfil
+                        DatosMensaje res = new DatosMensaje();
+                        res.setTipo(TipoMensaje.PROFILE_RESPONSE);
+                        res.setRemitente(nombreUsuarioLocal);
+                        res.setDestino(mensaje.getRemitente());
+                        res.setUserProfile(chatController.getCurrentUserProfile());
+                        chatController.enviarAlServidorExterno(res);
+                    }
+
+                    case PROFILE_RESPONSE -> {
+                        // Recibimos respuesta de perfil
+                        Platform.runLater(() -> chatController.mostrarPerfilUsuarioExterno(mensaje.getUserProfile()));
+                    }
+
+                    // ── General (fallback) ────────────────────────────────────
+                    default -> {
                         boolean esMio = nombreUsuarioLocal.equals(mensaje.getRemitente());
                         Platform.runLater(() -> chatController.registrarMensaje(mensaje, "GENERAL", esMio));
-                        break;
+                    }
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            Platform.runLater(() -> chatController.registrarMensajeSistema("--- Conexión perdida con el servidor ---"));
+            Platform.runLater(() -> chatController.registrarMensajeSistema(
+                    "--- Conexión perdida con el servidor ---"));
         }
     }
 }

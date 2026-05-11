@@ -119,6 +119,11 @@
                             </VBox>
                         </HBox>
 
+                        <!-- Botón Editar -->
+                        <VBox alignment="CENTER" style="-fx-padding: 20;">
+                            <Button onAction="#onEditarPerfilClick" style="-fx-background-color: #005f9e; -fx-text-fill: white; -fx-background-radius: 18; -fx-padding: 8 20; -fx-cursor: hand;" text="Editar Perfil" />
+                        </VBox>
+
                     </VBox>
                 </content>
             </ScrollPane>
