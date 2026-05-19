@@ -86,10 +86,17 @@ public class HiloCliente extends Thread {
                     }
 
                     // ── Borrar mensaje propio ─────────────────────────────────
+                    // ── Borrar mensaje propio ─────────────────────────────────
                     case BORRAR_MENSAJE -> {
                         String mid = mensaje.getMensajeId();
                         if (mid != null) {
-                            Platform.runLater(() -> chatController.eliminarBurbujaLocal(mid, mensaje.getDestino()));
+                            if (mensaje.isSuccess()) {
+                                // Borrado global (sustituir por placeholder)
+                                Platform.runLater(() -> chatController.sustituirBurbujaPorBorrado(mid, mensaje.getDestino()));
+                            } else {
+                                // Borrado local (sustituir por placeholder local)
+                                Platform.runLater(() -> chatController.sustituirBurbujaPorBorradoLocal(mid, mensaje.getDestino()));
+                            }
                         }
                     }
 
@@ -110,20 +117,16 @@ public class HiloCliente extends Thread {
                         Platform.runLater(() -> chatController.registrarMensajeSistema(
                                 "ℹ️ " + mensaje.getContenido()));
 
-                    case REQUEST_PROFILE -> {
-                        // Un moderador nos pide el perfil
-                        DatosMensaje res = new DatosMensaje();
-                        res.setTipo(TipoMensaje.PROFILE_RESPONSE);
-                        res.setRemitente(nombreUsuarioLocal);
-                        res.setDestino(mensaje.getRemitente());
-                        res.setUserProfile(chatController.getCurrentUserProfile());
-                        chatController.enviarAlServidorExterno(res);
-                    }
-
                     case PROFILE_RESPONSE -> {
                         // Recibimos respuesta de perfil
                         Platform.runLater(() -> chatController.mostrarPerfilUsuarioExterno(mensaje.getUserProfile()));
                     }
+
+                    case SOLICITUD_CHAT_PRIVADO -> chatController.manejarSolicitudChat(mensaje);
+                    case RESPUESTA_CHAT_PRIVADO -> chatController.manejarRespuestaChat(mensaje);
+                    case SOLICITUD_UNION_CANAL  -> chatController.manejarSolicitudCanal(mensaje);
+
+                    case CONTEXT_INFO_RESPONSE -> chatController.mostrarInfoContexto(mensaje.getContextData());
 
                     // ── General (fallback) ────────────────────────────────────
                     default -> {
@@ -133,8 +136,10 @@ public class HiloCliente extends Thread {
                 }
             }
         } catch (IOException | ClassNotFoundException e) {
-            Platform.runLater(() -> chatController.registrarMensajeSistema(
-                    "--- Conexión perdida con el servidor ---"));
+            Platform.runLater(() -> {
+                chatController.registrarMensajeSistema("--- Conexión perdida con el servidor ---");
+                chatController.intentarReconectar();
+            });
         }
     }
 }

@@ -144,11 +144,6 @@ public class LoginController {
     // =========================================================================
 
     private boolean validarCampos(String nick, String pass) {
-        if (ValidadorEntrada.contieneURL(nick)) {
-            nick = ValidadorEntrada.filtrarURLs(nick);
-            txtNombreUsuario.setText(nick);
-        }
-
         ValidadorEntrada.ResultadoValidacion rvNick = ValidadorEntrada.validarNickname(nick);
         if (!rvNick.valido()) { mostrarError(rvNick.mensajeError()); return false; }
 
@@ -185,7 +180,7 @@ public class LoginController {
 
             Scene scene = new Scene(loader.load(), 900, 600);
             ChatController chatController = loader.getController();
-            chatController.inicializarConexion(socket, salida, entrada, nombre, rol);
+            chatController.inicializarConexion(socket, salida, entrada, nombre, rol, getPassword());
 
             Stage stage = (Stage) btnEntrar.getScene().getWindow();
             String tituloRol = "MODERATOR".equals(rol) ? " [Moderador]" : "";

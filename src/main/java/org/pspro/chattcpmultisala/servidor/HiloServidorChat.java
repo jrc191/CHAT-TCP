@@ -1,9 +1,6 @@
 package org.pspro.chattcpmultisala.servidor;
 
-import org.pspro.chattcpmultisala.common.CifradoMensajes;
-import org.pspro.chattcpmultisala.common.DatosMensaje;
-import org.pspro.chattcpmultisala.common.TipoMensaje;
-import org.pspro.chattcpmultisala.common.ValidadorEntrada;
+import org.pspro.chattcpmultisala.common.*;
 
 import java.io.*;
 import java.net.Socket;
@@ -22,6 +19,7 @@ public class HiloServidorChat extends Thread {
     private final Socket socket;
     private final InfoHilos infoh;
     private final GestorUsuarios gestorUsuarios;
+    private final GestorPerfiles gestorPerfiles;
 
     private ObjectInputStream  entrada;
     private ObjectOutputStream salida;
@@ -32,10 +30,11 @@ public class HiloServidorChat extends Thread {
     // ── Promociones temporales: "usuario:canal" → instante de expiración ──────
     private static final Map<String, Long> promocionesTempo = new ConcurrentHashMap<>();
 
-    public HiloServidorChat(Socket s, InfoHilos infoh, GestorUsuarios gestorUsuarios) {
+    public HiloServidorChat(Socket s, InfoHilos infoh, GestorUsuarios gestorUsuarios, GestorPerfiles gestorPerfiles) {
         this.socket         = s;
         this.infoh          = infoh;
         this.gestorUsuarios = gestorUsuarios;
+        this.gestorPerfiles = gestorPerfiles;
         try {
             this.salida = new ObjectOutputStream(socket.getOutputStream());
             this.salida.flush();
@@ -81,6 +80,10 @@ public class HiloServidorChat extends Thread {
 
                 // Sanitizar contenido
                 if (mensaje.getContenido() != null) {
+                    if (ValidadorEntrada.contieneURL(mensaje.getContenido())) {
+                        enviarMensajeSistema("No se permite el envío de enlaces por seguridad y para evitar SPAM.");
+                        continue;
+                    }
                     mensaje.setContenido(ValidadorEntrada.sanitizarMensaje(mensaje.getContenido()));
                 }
 
@@ -99,7 +102,17 @@ public class HiloServidorChat extends Thread {
                     case BANEAR_USUARIO        -> procesarBanear(mensaje);
                     case SUSPENDER_CANAL       -> procesarSuspenderCanal(mensaje);
                     case PROMOVER_TEMPORAL     -> procesarPromoverTemporal(mensaje);
-                    case REQUEST_PROFILE, PROFILE_RESPONSE -> procesarReenvioPerfil(mensaje);
+                    case SYNC_PROFILE          -> procesarSyncProfile(mensaje);
+                    case REQUEST_PROFILE       -> procesarRequestProfileServer(mensaje);
+                    case PROFILE_RESPONSE      -> procesarReenvioPerfil(mensaje);
+                    
+                    case REQUEST_CONTEXT_INFO -> procesarRequestContextInfo(mensaje);
+                    
+                    case SOLICITUD_CHAT_PRIVADO -> procesarSolicitudChat(mensaje);
+                    case RESPUESTA_CHAT_PRIVADO -> procesarRespuestaChat(mensaje);
+                    case SOLICITUD_UNION_CANAL  -> procesarSolicitudCanal(mensaje);
+                    case RESPUESTA_UNION_CANAL  -> procesarRespuestaCanal(mensaje);
+                    
                     default -> System.out.println("Tipo no soportado: " + mensaje.getTipo());
                 }
             }
@@ -122,8 +135,9 @@ public class HiloServidorChat extends Thread {
         while (true) {
             // Comprobar si la IP está bloqueada por fuerza bruta
             if (infoh.ipBloqueada(ip)) {
+                long segs = infoh.segundosRestantesBloqueo(ip);
                 enviarRespuestaError(TipoMensaje.LOGIN_RESPONSE,
-                        "Demasiados intentos fallidos. IP bloqueada temporalmente.");
+                        "Demasiados intentos fallidos. Espera " + segs + " segundos.");
                 return false;
             }
 
@@ -275,6 +289,12 @@ public class HiloServidorChat extends Thread {
         if (mensaje.getTimestamp() == null) mensaje.setTimestamp(LocalDateTime.now());
         if (mensaje.getMensajeId() == null) mensaje.setMensajeId(UUID.randomUUID().toString());
 
+        // Verificar permiso
+        if (!infoh.tienePermisoChat(nombreUsuario, mensaje.getDestino())) {
+            enviarMensajeSistema("No tienes permiso para enviar mensajes privados a " + mensaje.getDestino() + ". Debes enviarle una solicitud primero.");
+            return;
+        }
+
         UsuarioConectado dest = infoh.obtenerUsuario(mensaje.getDestino());
         if (dest == null) {
             enviarMensajeSistema("El usuario '" + mensaje.getDestino() + "' no está conectado.");
@@ -284,6 +304,67 @@ public class HiloServidorChat extends Thread {
         DatosMensaje msgCifrado = cifrarContenido(mensaje);
         enviarSeguro(dest.getSalida(), msgCifrado);
         enviarSeguro(salida, msgCifrado);  // Copia al emisor
+    }
+
+    private void procesarSolicitudChat(DatosMensaje mensaje) {
+        mensaje.setRemitente(nombreUsuario);
+        UsuarioConectado dest = infoh.obtenerUsuario(mensaje.getDestino());
+        if (dest != null) {
+            enviarSeguro(dest.getSalida(), mensaje);
+            enviarMensajeSistema("Solicitud de chat enviada a " + mensaje.getDestino());
+        } else {
+            enviarMensajeSistema("El usuario " + mensaje.getDestino() + " no está en línea.");
+        }
+    }
+
+    private void procesarRespuestaChat(DatosMensaje mensaje) {
+        // mensaje.getDestino() es quien inició la solicitud
+        // mensaje.isSuccess() indica si aceptó
+        String originadorNick = mensaje.getDestino();
+        if (mensaje.isSuccess()) {
+            infoh.concederPermisoChat(nombreUsuario, originadorNick);
+            // Notificar al que aceptó (en su vista de chat privado con el otro)
+            enviarMensajeSistemaPrivado("Has aceptado la solicitud de chat de " + originadorNick, originadorNick);
+        }
+
+        UsuarioConectado originador = infoh.obtenerUsuario(originadorNick);
+        if (originador != null) {
+            mensaje.setRemitente(nombreUsuario); // Quien responde
+            enviarSeguro(originador.getSalida(), mensaje);
+
+            if (mensaje.isSuccess()) {
+                // Notificar al que pidió el chat (en su vista con quien acaba de aceptar)
+                DatosMensaje notif = new DatosMensaje();
+                notif.setTipo(TipoMensaje.MENSAJE_PRIVADO);
+                notif.setRemitente("SISTEMA");
+                notif.setDestino(originadorNick); // Para que el cliente sepa en qué pestaña ponerlo
+                notif.setContenido(nombreUsuario + " ha aceptado tu solicitud de chat.");
+                notif.setTimestamp(LocalDateTime.now());
+                enviarSeguro(originador.getSalida(), notif);
+            }
+        }
+    }
+    private void procesarSolicitudCanal(DatosMensaje mensaje) {
+        mensaje.setRemitente(nombreUsuario);
+        UsuarioConectado dest = infoh.obtenerUsuario(mensaje.getDestino());
+        if (dest != null) {
+            enviarSeguro(dest.getSalida(), mensaje);
+            enviarMensajeSistema("Invitación al canal " + mensaje.getContenido() + " enviada a " + mensaje.getDestino());
+        }
+    }
+
+    private void procesarRespuestaCanal(DatosMensaje mensaje) {
+        if (mensaje.isSuccess()) {
+            String canal = mensaje.getContenido();
+            List<String> miembros = infoh.obtenerMiembrosCanal(canal);
+            if (miembros != null && !miembros.contains(nombreUsuario)) {
+                List<String> nuevos = new ArrayList<>(miembros);
+                nuevos.add(nombreUsuario);
+                infoh.agregarCanal(canal, nuevos);
+                notificarUnionCanal(nombreUsuario, canal, nuevos, false);
+                enviarNotificacionCanal(canal, nombreUsuario + " se ha unido al canal.");
+            }
+        }
     }
 
     private void procesarCrearCanal(DatosMensaje mensaje) {
@@ -364,10 +445,10 @@ public class HiloServidorChat extends Thread {
         String destino = mensaje.getDestino();
 
         if ("GENERAL".equals(destino)) {
-            // Tablón general
+            // Guardar en tablón para poder borrarlo después
+            infoh.agregarArchivoCanal("GENERAL", mensaje.getArchivoId(), mensaje);
             for (UsuarioConectado uc : infoh.getUsuariosConectados().values()) {
-                if (!uc.getNombreUsuario().equals(nombreUsuario))
-                    enviarSeguro(uc.getSalida(), mensaje);
+                enviarSeguro(uc.getSalida(), mensaje);
             }
         } else if (infoh.existeCanal(destino)) {
             // Tablón del canal
@@ -394,7 +475,11 @@ public class HiloServidorChat extends Thread {
 
         DatosMensaje archivoOriginal = infoh.obtenerArchivoCanal(canal, archivoId);
         if (archivoOriginal == null) {
-            enviarMensajeSistema("El archivo no existe en el tablón.");
+            // No enviamos error al sistema aquí si es un borrado normal de mensaje,
+            // ya que el cliente podría estar intentando borrar de un tablón que no corresponde (ej. privado).
+            // Pero como este método es el de la herramienta específica "Eliminar Archivo" (moderador), 
+            // lo dejamos pero con un log más claro.
+            System.out.println("[ARCHIVO] Intento de borrar archivo inexistente: " + archivoId + " en " + canal);
             return;
         }
 
@@ -409,18 +494,25 @@ public class HiloServidorChat extends Thread {
         }
 
         infoh.eliminarArchivoCanal(canal, archivoId);
-        // Notificar a todos los miembros del canal
-        List<String> miembros = infoh.obtenerMiembrosCanal(canal);
-        if (miembros != null) {
-            DatosMensaje notif = new DatosMensaje();
-            notif.setTipo(TipoMensaje.ELIMINAR_ARCHIVO);
-            notif.setRemitente("SISTEMA");
-            notif.setDestino(canal);
-            notif.setArchivoId(archivoId);
-            notif.setTimestamp(LocalDateTime.now());
-            for (String m : miembros) {
-                UsuarioConectado uc = infoh.obtenerUsuario(m);
-                if (uc != null) enviarSeguro(uc.getSalida(), notif);
+
+        DatosMensaje notif = new DatosMensaje();
+        notif.setTipo(TipoMensaje.ELIMINAR_ARCHIVO);
+        notif.setRemitente("SISTEMA");
+        notif.setDestino(canal);
+        notif.setArchivoId(archivoId);
+        notif.setTimestamp(LocalDateTime.now());
+
+        if ("GENERAL".equals(canal)) {
+            // Notificar a todos los conectados
+            infoh.getUsuariosConectados().values()
+                    .forEach(uc -> enviarSeguro(uc.getSalida(), notif));
+        } else {
+            List<String> miembros = infoh.obtenerMiembrosCanal(canal);
+            if (miembros != null) {
+                for (String m : miembros) {
+                    UsuarioConectado uc = infoh.obtenerUsuario(m);
+                    if (uc != null) enviarSeguro(uc.getSalida(), notif);
+                }
             }
         }
         System.out.println("[ARCHIVO] Eliminado " + archivoId + " del canal " + canal + " por " + nombreUsuario);
@@ -434,6 +526,14 @@ public class HiloServidorChat extends Thread {
         }
 
         String destino = mensaje.getDestino();
+        String mid = mensaje.getMensajeId();
+
+        // Si es un archivo en un tablón, lo quitamos de la persistencia en memoria del servidor
+        if (mid != null) {
+            infoh.eliminarArchivoCanal(destino, mid);
+            // En chats privados, si no estaba en 'destino', podría estar en el canal del propio remitente
+            infoh.eliminarArchivoCanal(nombreUsuario, mid);
+        }
 
         if ("GENERAL".equals(destino)) {
             // Borrar en sala general: notificar a todos
@@ -453,7 +553,14 @@ public class HiloServidorChat extends Thread {
         } else {
             // Borrar mensaje privado: notificar al destinatario
             UsuarioConectado dest = infoh.obtenerUsuario(destino);
-            if (dest != null) enviarSeguro(dest.getSalida(), mensaje);
+            if (dest != null) {
+                enviarSeguro(dest.getSalida(), mensaje);
+            } else {
+                // Si el destino era yo mismo (copia local), intentar notificar al remitente original
+                // Esto sucede si el mensaje.getDestino() se guardó con el nombre del remitente en el cliente
+                UsuarioConectado remitenteOriginal = infoh.obtenerUsuario(mensaje.getRemitente());
+                // (En realidad el remitente es quien envía la orden de borrado ahora)
+            }
         }
     }
 
@@ -468,6 +575,12 @@ public class HiloServidorChat extends Thread {
             return;
         }
         String objetivo = mensaje.getDestino();
+
+        // RESTRICCIÓN: No se puede banear a un Administrador global si el que banea es temporal o de canal
+        if (gestorUsuarios.obtenerRol(objetivo) == GestorUsuarios.Rol.MODERATOR) {
+            enviarMensajeSistema("No tienes autoridad para expulsar a un Administrador global.");
+            return;
+        }
 
         UsuarioConectado ucObj = infoh.obtenerUsuario(objetivo);
         if (ucObj == null) { enviarMensajeSistema("Usuario no encontrado."); return; }
@@ -508,6 +621,12 @@ public class HiloServidorChat extends Thread {
     }
 
     private void procesarPromoverTemporal(DatosMensaje mensaje) {
+        // RESTRICCIÓN: Solo los administradores REALES (globales) pueden promover a otros
+        if (gestorUsuarios.obtenerRol(nombreUsuario) != GestorUsuarios.Rol.MODERATOR) {
+            enviarMensajeSistema("Solo los administradores globales pueden promover a otros usuarios.");
+            return;
+        }
+
         if (!esModeradorEfectivo(mensaje.getContenido())) { // El moderador debe serlo en ese canal
             enviarMensajeSistema("No tienes permisos de moderador en este canal.");
             return;
@@ -555,13 +674,84 @@ public class HiloServidorChat extends Thread {
                 + " en " + canal + " por " + segundos + "s.");
     }
 
+    private void procesarSyncProfile(DatosMensaje mensaje) {
+        if (mensaje.getUserProfile() != null) {
+            // Aseguramos que el nombre coincide con el del remitente
+            mensaje.getUserProfile().setUsername(nombreUsuario);
+            gestorPerfiles.guardarPerfil(mensaje.getUserProfile());
+            System.out.println("[GestorPerfiles] Perfil sincronizado para: " + nombreUsuario);
+        }
+    }
+
+    private void procesarRequestProfileServer(DatosMensaje mensaje) {
+        // Un administrador pide un perfil. Respondemos directamente desde el servidor.
+        String objetivo = mensaje.getDestino();
+        UserProfile p = gestorPerfiles.obtenerPerfil(objetivo);
+
+        DatosMensaje resp = new DatosMensaje();
+        resp.setTipo(TipoMensaje.PROFILE_RESPONSE);
+        resp.setRemitente("SISTEMA");
+        resp.setDestino(nombreUsuario);
+        resp.setUserProfile(p);
+
+        if (p != null) {
+            boolean estaOnline = infoh.existeUsuario(p.getUsername());
+            p.setStatus(estaOnline ? "online" : "offline");
+        }
+
+        try { enviarObjeto(salida, resp); } catch (IOException e) { e.printStackTrace(); }
+    }
+
     private void procesarReenvioPerfil(DatosMensaje mensaje) {
-        // El servidor simplemente actúa como puente
+        // El servidor simplemente actúa como puente para respuestas de perfil si fuera necesario
         String destino = mensaje.getDestino();
         UsuarioConectado uc = infoh.obtenerUsuario(destino);
+        
+        if (mensaje.getTipo() == TipoMensaje.PROFILE_RESPONSE && mensaje.getUserProfile() != null) {
+            String usernamePerfil = mensaje.getUserProfile().getUsername();
+            boolean estaOnline = infoh.existeUsuario(usernamePerfil);
+            mensaje.getUserProfile().setStatus(estaOnline ? "online" : "offline");
+        }
+
         if (uc != null) {
             enviarSeguro(uc.getSalida(), mensaje);
         }
+    }
+
+    private void procesarRequestContextInfo(DatosMensaje mensaje) {
+        String destino = mensaje.getDestino();
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", destino);
+
+        if ("GENERAL".equals(destino)) {
+            data.put("type", "SALA");
+            data.put("name", "Sala de Chat General");
+            data.put("description", "Canal público principal del servidor.");
+            List<String> online = infoh.getNombresUsuarios();
+            data.put("members", online);
+            data.put("online_count", online.size());
+        } else if (infoh.existeCanal(destino)) {
+            data.put("type", "CANAL");
+            data.put("name", destino);
+            data.put("created", infoh.obtenerFechaCreacionCanal(destino));
+            data.put("moderator", infoh.obtenerModeradorCanal(destino));
+            List<String> miembros = infoh.obtenerMiembrosCanal(destino);
+            data.put("members", miembros);
+            long online = miembros.stream().filter(infoh::existeUsuario).count();
+            data.put("online_count", online);
+        } else {
+            // Perfil de usuario (Chat privado)
+            data.put("type", "USUARIO");
+            data.put("name", destino);
+            boolean online = infoh.existeUsuario(destino);
+            data.put("online", online);
+        }
+
+        DatosMensaje resp = new DatosMensaje();
+        resp.setTipo(TipoMensaje.CONTEXT_INFO_RESPONSE);
+        resp.setDestino(nombreUsuario);
+        resp.setContextData(data);
+        try { enviarObjeto(salida, resp); } catch (IOException e) { e.printStackTrace(); }
     }
 
     // =========================================================================
@@ -682,6 +872,16 @@ public class HiloServidorChat extends Thread {
         DatosMensaje msg = new DatosMensaje();
         msg.setTipo(TipoMensaje.MENSAJE_GENERAL);
         msg.setRemitente("SISTEMA");
+        msg.setContenido(texto);
+        msg.setTimestamp(LocalDateTime.now());
+        try { enviarObjeto(salida, msg); } catch (IOException ignored) {}
+    }
+
+    private void enviarMensajeSistemaPrivado(String texto, String destino) {
+        DatosMensaje msg = new DatosMensaje();
+        msg.setTipo(TipoMensaje.MENSAJE_PRIVADO);
+        msg.setRemitente("SISTEMA");
+        msg.setDestino(destino);
         msg.setContenido(texto);
         msg.setTimestamp(LocalDateTime.now());
         try { enviarObjeto(salida, msg); } catch (IOException ignored) {}

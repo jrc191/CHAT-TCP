@@ -3,14 +3,22 @@ package org.pspro.chattcpmultisala.cliente.controladores;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.geometry.Pos;
+import javafx.geometry.Side;
 import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.InputMethodEvent;
 import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+import org.pspro.chattcpmultisala.cliente.ContactManager;
 import org.pspro.chattcpmultisala.cliente.HiloCliente;
+import org.pspro.chattcpmultisala.cliente.ProfileService;
 import org.pspro.chattcpmultisala.common.*;
+import org.pspro.chattcpmultisala.cliente.ChatService;
 
 import java.io.*;
 import java.net.Socket;
@@ -39,6 +47,7 @@ public class ChatController {
     @FXML public Button    btnEnviar;
     @FXML public Button    cerrarAppBtn;
     @FXML public Label     lblTituloChat;
+    @FXML public Label     lblPanelTitulo;
     @FXML public TextField txtBuscador;
     @FXML public ScrollPane scrollChat;
     @FXML public AnchorPane profilePanel;
@@ -53,8 +62,23 @@ public class ChatController {
     @FXML public Label     profileEmail;
     @FXML public Label     profileBio;
 
+    // Nuevos campos para Info Contextual
+    @FXML public VBox      containerMiembros;
+    @FXML public VBox      listMiembros;
+    @FXML public Button    btnEditarPerfil;
+    @FXML public Button    btnEliminarCanal;
+    @FXML public Label     infoIcon1;
+    @FXML public Label     infoLabel1;
+    @FXML public Label     infoIcon2;
+    @FXML public Label     infoLabel2;
+    @FXML public Label     infoIcon3;
+    @FXML public Label     infoLabel3;
+    @FXML public HBox      rowEmail;
+    @FXML public HBox      mainRoot; // Para el modo oscuro
+
     // ── Estado ────────────────────────────────────────────────────────────────
     private boolean     profilePanelVisible = false;
+    private boolean     isDarkMode = false; // Estado del modo oscuro
     private ProfileManager     profileManager;
     private ChatFolderManager  folderManager;
     private UserProfile        currentUserProfile;
@@ -64,6 +88,13 @@ public class ChatController {
     private ObjectInputStream  entrada;
     private String             nombreUsuario;
     private String             rolUsuario = "USER";   // "USER" o "MODERATOR"
+    private String             passwordUsuario;       // Para reconexión automática
+    private ChatService        chatService;
+    private ProfileService profileService;
+    private ContactManager contactManager;
+
+    private int                intentosReconexion = 0;
+    private static final int   MAX_INTENTOS = 3;
 
     private String              destinatarioActual    = "GENERAL";
     private final Map<String, List<Node>> historialesChat    = new HashMap<>();
@@ -84,21 +115,27 @@ public class ChatController {
      * Nuevo método con rol.
      */
     public void inicializarConexion(Socket socket, ObjectOutputStream salida,
-                                    ObjectInputStream entrada, String nombreUsuario, String rol) {
+                                    ObjectInputStream entrada, String nombreUsuario, String rol, String pass) {
         this.socket        = socket;
         this.salida        = salida;
         this.entrada       = entrada;
         this.nombreUsuario = nombreUsuario;
         this.rolUsuario    = rol != null ? rol : "USER";
+        this.passwordUsuario = pass;
+        this.chatService   = new ChatService(salida);
+        this.contactManager = new ContactManager(this);
 
         chatsActivos.add("GENERAL");
         historialesChat.put("GENERAL", new ArrayList<>());
 
         inicializarGestoresPerfilesYCarpetas();
 
-        HiloCliente hilo = new HiloCliente(socket, entrada, nombreUsuario, this);
-        hilo.setDaemon(true);
-        hilo.start();
+        if (userAvatar != null) {
+            userAvatar.setCursor(javafx.scene.Cursor.HAND);
+            userAvatar.setOnMouseClicked(e -> mostrarPerfilPropio());
+        }
+
+        iniciarHiloReceptor();
 
         if (txtBuscador != null)
             txtBuscador.textProperty().addListener((o, v, n) -> dibujarContactosActivos());
@@ -109,14 +146,156 @@ public class ChatController {
         dibujarContactosActivos();
     }
 
+    private void iniciarHiloReceptor() {
+        HiloCliente hilo = new HiloCliente(socket, entrada, nombreUsuario, this);
+        hilo.setDaemon(true);
+        hilo.start();
+    }
+
+    public void intentarReconectar() {
+        if (intentosReconexion >= MAX_INTENTOS) {
+            Platform.runLater(() -> {
+                mostrarAlertaError("Se ha perdido la conexión de forma permanente tras 3 intentos. Volviendo al login.");
+                volverAlLogin();
+            });
+            return;
+        }
+
+        intentosReconexion++;
+        registrarMensajeSistema("Intento de reconexión " + intentosReconexion + "/" + MAX_INTENTOS + "...");
+
+        new Thread(() -> {
+            try {
+                // Pequeña espera entre intentos
+                Thread.sleep(2000);
+
+                // Recrear SSLSocket
+                javax.net.ssl.SSLSocketFactory ssf = crearSSLSocketFactory();
+                socket = ssf.createSocket("localhost", 55555);
+                salida = new ObjectOutputStream(socket.getOutputStream());
+                salida.flush();
+                entrada = new ObjectInputStream(socket.getInputStream());
+
+                // Re-autenticar
+                DatosMensaje loginMsg = new DatosMensaje();
+                loginMsg.setTipo(TipoMensaje.LOGIN_REGISTER);
+                loginMsg.setRemitente(nombreUsuario);
+                loginMsg.setPassword(passwordUsuario);
+                
+                salida.writeObject(loginMsg);
+                salida.flush();
+
+                DatosMensaje resp = (DatosMensaje) entrada.readObject();
+                if (resp != null && resp.isSuccess()) {
+                    intentosReconexion = 0;
+                    registrarMensajeSistema("¡Reconexión exitosa!");
+                    iniciarHiloReceptor();
+                } else {
+                    intentarReconectar(); // Reintento recursivo (con control de MAX_INTENTOS)
+                }
+
+            } catch (Exception e) {
+                System.err.println("Fallo en reconexión: " + e.getMessage());
+                intentarReconectar();
+            }
+        }).start();
+    }
+
+    private void volverAlLogin() {
+        try {
+            // Limpiar recursos
+            try { if (entrada != null) entrada.close(); } catch (Exception ignored) {}
+            try { if (salida  != null) salida.close();  } catch (Exception ignored) {}
+            try { if (socket  != null) socket.close();  } catch (Exception ignored) {}
+            socket = null; salida = null; entrada = null;
+
+            FXMLLoader loader = new FXMLLoader(getClass().getResource("/org/pspro/chattcpmultisala/login.fxml"));
+            Scene scene = new Scene(loader.load(), 800, 500);
+            Stage stage = (Stage) btnEnviar.getScene().getWindow();
+            stage.setTitle("ChatTCP SSL - Iniciar Sesión");
+            stage.setScene(scene);
+        } catch (IOException e) { e.printStackTrace(); }
+    }
+
+    private javax.net.ssl.SSLSocketFactory crearSSLSocketFactory() throws Exception {
+        java.security.KeyStore ks = java.security.KeyStore.getInstance("PKCS12");
+        InputStream is = getClass().getResourceAsStream("/servidor.p12");
+        if (is == null) throw new FileNotFoundException("Keystore not found");
+        ks.load(is, "chat-password".toCharArray());
+
+        javax.net.ssl.TrustManagerFactory tmf = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(ks);
+
+        javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLS");
+        sc.init(null, tmf.getTrustManagers(), null);
+        return sc.getSocketFactory();
+    }
+
+    @FXML
+    public void onToggleDarkMode(ActionEvent event) {
+        if (mainRoot == null) return;
+        
+        isDarkMode = !isDarkMode;
+        
+        // Guardar preferencia en el perfil
+        if (currentUserProfile != null) {
+            currentUserProfile.setDarkMode(isDarkMode);
+            profileManager.updateProfile(currentUserProfile);
+        }
+        
+        aplicarTema(isDarkMode);
+    }
+
+    private void aplicarTema(boolean dark) {
+        if (mainRoot == null) return;
+        
+        String cssPath = getClass().getResource("/org/pspro/chattcpmultisala/dark-mode.css").toExternalForm();
+        
+        if (dark) {
+            if (!mainRoot.getStyleClass().contains("dark-mode")) {
+                mainRoot.getStyleClass().add("dark-mode");
+            }
+            if (!mainRoot.getStylesheets().contains(cssPath)) {
+                mainRoot.getStylesheets().add(cssPath);
+            }
+        } else {
+            mainRoot.getStyleClass().remove("dark-mode");
+            mainRoot.getStylesheets().remove(cssPath);
+        }
+    }
+
+    private void mostrarPerfilPropio() {
+        if (profilePanel == null) return;
+        profilePanelVisible = true;
+        profilePanel.setVisible(true);
+        profilePanel.setManaged(true);
+        actualizarPanelPerfil(); 
+    }
+
+    private void solicitarInfoContexto() {
+        try {
+            DatosMensaje req = new DatosMensaje();
+            req.setTipo(TipoMensaje.REQUEST_CONTEXT_INFO);
+            req.setDestino(destinatarioActual);
+            enviarAlServidorExterno(req);
+        } catch (IOException e) { e.printStackTrace(); }
+    }
+
     /** Compatibilidad retroactiva (sin rol). */
     public void inicializarConexion(Socket socket, ObjectOutputStream salida,
                                     ObjectInputStream entrada, String nombreUsuario) {
-        inicializarConexion(socket, salida, entrada, nombreUsuario, "USER");
+        inicializarConexion(socket, salida, entrada, nombreUsuario, "USER", null);
     }
 
     public boolean esModerador() {
-        return "MODERATOR".equals(rolUsuario);
+        return "MODERATOR".equals(rolUsuario) || esModeradorEfectivo(destinatarioActual);
+    }
+
+    private final Set<String> canalesDondeSoyModTemporal = new HashSet<>();
+
+    private boolean esModeradorEfectivo(String canal) {
+        if ("MODERATOR".equals(rolUsuario)) return true;
+        return canal != null && canalesDondeSoyModTemporal.contains(canal);
     }
 
     // =========================================================================
@@ -125,8 +304,14 @@ public class ChatController {
 
     @FXML
     public void onEnviarClick(ActionEvent actionEvent) {
-        String contenido = txtMensaje.getText().trim();
-        if (contenido.isEmpty() || salida == null) return;
+        String raw = txtMensaje.getText();
+        if (ValidadorEntrada.contieneURL(raw)) {
+            mostrarAlertaError("No se permite el envío de enlaces para evitar SPAM.");
+            return;
+        }
+        
+        String contenido = ValidadorEntrada.sanitizarMensaje(raw);
+        if (contenido == null || contenido.isEmpty() || salida == null) return;
 
         boolean esCanal   = canalesActivos.contains(destinatarioActual);
         boolean esGeneral = "GENERAL".equals(destinatarioActual);
@@ -156,7 +341,7 @@ public class ChatController {
             enviarAlServidorExterno(mensaje);
 
             // Mostrar el mensaje localmente con texto plano (propio)
-            DatosMensaje msgLocal = clonarConContenido(mensaje, contenido);
+            DatosMensaje msgLocal = chatService.clonarConContenido(mensaje, contenido);
             if (esGeneral) registrarMensaje(msgLocal, "GENERAL", true);
 
             if ("*****".equals(contenido)) System.exit(0);
@@ -195,12 +380,14 @@ public class ChatController {
             msg.setDatosArchivoCifrado(datosCifrados);
             msg.setTamanoArchivo(datos.length);
             msg.setTimestamp(LocalDateTime.now());
-            msg.setArchivoId(UUID.randomUUID().toString());
+            String aid = UUID.randomUUID().toString();
+            msg.setArchivoId(aid);
+            msg.setMensajeId(aid); // Para que el sistema de borrado lo encuentre
 
             enviarAlServidorExterno(msg);
 
-            // Mostrar localmente
-            registrarArchivoEnUI(msg, true);
+            // No registramos localmente aquí para evitar duplicados. 
+            // El servidor nos lo devolverá (echo) y HiloCliente lo registrará.
 
         } catch (IOException e) {
             mostrarAlertaError("Error leyendo el archivo: " + e.getMessage());
@@ -211,20 +398,98 @@ public class ChatController {
     // BORRAR MENSAJE PROPIO (PRIVADO)
     // =========================================================================
 
-    private void borrarMensajePropio(String mensajeId, String destino) {
+    private void borrarMensajePropio(DatosMensaje mensaje, String sala) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime sentAt = mensaje.getTimestamp();
+        boolean menosDe5Min = sentAt != null && java.time.Duration.between(sentAt, now).toMinutes() < 5;
+
+        if (menosDe5Min) {
+            // Mostrar diálogo para elegir entre borrar para mí o para todos
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Eliminar mensaje");
+            alert.setHeaderText("¿Cómo quieres eliminar este mensaje?");
+            
+            ButtonType btnParaTodos = new ButtonType("Eliminar para todos");
+            ButtonType btnParaMi = new ButtonType("Eliminar para mí");
+            ButtonType btnCancelar = new ButtonType("Cancelar", ButtonBar.ButtonData.CANCEL_CLOSE);
+            
+            alert.getButtonTypes().setAll(btnParaTodos, btnParaMi, btnCancelar);
+            
+            alert.showAndWait().ifPresent(tipo -> {
+                if (tipo == btnParaTodos) {
+                    ejecutarBorrado(mensaje.getMensajeId(), sala, true);
+                } else if (tipo == btnParaMi) {
+                    sustituirBurbujaPorBorradoLocal(mensaje.getMensajeId(), sala);
+                }
+            });
+        } else {
+            // Solo se puede borrar para mí (localmente)
+            sustituirBurbujaPorBorradoLocal(mensaje.getMensajeId(), sala);
+            mostrarAlerta("Han pasado más de 5 minutos. El mensaje solo se ha eliminado de tu vista.");
+        }
+    }
+
+    private void ejecutarBorrado(String mensajeId, String destino, boolean paraTodos) {
         try {
             DatosMensaje msg = new DatosMensaje();
             msg.setTipo(TipoMensaje.BORRAR_MENSAJE);
             msg.setRemitente(nombreUsuario);
             msg.setDestino(destino);
             msg.setMensajeId(mensajeId);
+            msg.setSuccess(paraTodos); // Reutilizamos success para indicar si es global
             enviarAlServidorExterno(msg);
 
-            // Eliminar de la UI local
-            eliminarBurbujaLocal(mensajeId, destino);
-
+            // Actualizar localmente si es global
+            if (paraTodos) {
+                sustituirBurbujaPorBorrado(mensajeId, destino);
+            }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    public void sustituirBurbujaPorBorradoLocal(String mensajeId, String sala) {
+        Platform.runLater(() -> {
+            HBox burbujaContenedora = burbujasById.get(mensajeId);
+            if (burbujaContenedora != null && !burbujaContenedora.getChildren().isEmpty()) {
+                // Ahora es un StackPane que contiene el VBox de la burbuja y el menú
+                Node root = burbujaContenedora.getChildren().get(0);
+                procesarNodosBorrado(root, "ELIMINASTE ESTE MENSAJE PARA TÍ MISMO");
+            }
+        });
+    }
+
+    public void sustituirBurbujaPorBorrado(String mensajeId, String sala) {
+        Platform.runLater(() -> {
+            HBox burbujaContenedora = burbujasById.get(mensajeId);
+            if (burbujaContenedora != null && !burbujaContenedora.getChildren().isEmpty()) {
+                Node root = burbujaContenedora.getChildren().get(0);
+                procesarNodosBorrado(root, "EL MENSAJE HA SIDO ELIMINADO");
+            }
+        });
+    }
+
+    /**
+     * Recorre recursivamente los nodos de una burbuja para ocultar botones/labels extras
+     * y sustituir el texto principal.
+     */
+    private void procesarNodosBorrado(Node nodo, String textoSustituto) {
+        if (nodo instanceof Parent p) {
+            // Copia para evitar ConcurrentModificationException si se alteraran hijos (aunque aquí solo cambiamos propiedades)
+            new ArrayList<>(p.getChildrenUnmodifiable()).forEach(child -> procesarNodosBorrado(child, textoSustituto));
+        }
+
+        if (nodo instanceof Label lbl) {
+            if (lbl.getStyleClass().contains("message-text") || lbl.getText().startsWith("📎")) {
+                lbl.setText(textoSustituto);
+                lbl.setStyle("-fx-font-style: italic; -fx-text-fill: #999;");
+            } else if (lbl.getStyleClass().contains("timestamp") || "▼".equals(lbl.getText())) {
+                nodo.setVisible(false);
+                nodo.setManaged(false);
+            }
+        } else if (nodo instanceof Button) {
+            nodo.setVisible(false);
+            nodo.setManaged(false);
         }
     }
 
@@ -292,18 +557,52 @@ public class ChatController {
     }
 
     public void mostrarPerfilUsuarioExterno(UserProfile p) {
-        if (p == null) return;
-        Alert info = new Alert(Alert.AlertType.INFORMATION);
-        info.setTitle("Perfil de Usuario");
-        info.setHeaderText("Información de " + p.getDisplayName() + " (@" + p.getUsername() + ")");
-        
-        String sb = "📞 Teléfono: " + nvl(p.getPhoneNumber(), "No especificado") + "\n" +
-                "✉ Correo: " + nvl(p.getEmail(), "No especificado") + "\n" +
-                "📝 Biografía: " + nvl(p.getBio(), "No especificado") + "\n" +
-                "🟢 Estado: " + p.getStatusText();
-        
-        info.setContentText(sb);
-        info.showAndWait();
+        if (profilePanel == null) return;
+        Platform.runLater(() -> {
+            if (p == null) {
+                mostrarAlertaError("No se pudo obtener la información del perfil del usuario.");
+                return;
+            }
+
+            profilePanelVisible = true;
+            profilePanel.setVisible(true);
+            profilePanel.setManaged(true);
+
+            if (lblPanelTitulo != null) lblPanelTitulo.setText("Perfil de Usuario");
+            
+            String initials = p.getAvatarInitials();
+            if (initials == null || initials.isBlank()) initials = "?";
+            
+            if (profileAvatarBig != null) {
+                profileAvatarBig.setText(initials);
+                profileAvatarBig.setStyle("-fx-background-color: #005f9e; -fx-text-fill: white; -fx-font-size: 26; -fx-font-weight: bold; -fx-background-radius: 40;");
+            }
+            
+            String displayName = p.getDisplayName();
+            if (profileName != null) profileName.setText((displayName != null ? displayName : "Usuario") + " (@" + p.getUsername() + ")");
+            
+            // Restaurar etiquetas de Perfil
+            if (infoIcon1 != null) infoIcon1.setText("📞");
+            if (infoLabel1 != null) infoLabel1.setText("Teléfono");
+            if (infoIcon2 != null) infoIcon2.setText("✉");
+            if (infoLabel2 != null) infoLabel2.setText("Correo");
+            if (infoIcon3 != null) infoIcon3.setText("📝");
+            if (infoLabel3 != null) infoLabel3.setText("Biografía");
+            if (rowEmail != null) { rowEmail.setVisible(true); rowEmail.setManaged(true); }
+
+            if (profilePhone != null) profilePhone.setText(nvl(p.getPhoneNumber(), "No especificado"));
+            if (profileEmail != null) profileEmail.setText(nvl(p.getEmail(), "No especificado"));
+            if (profileBio != null) profileBio.setText(nvl(p.getBio(), "No especificado"));
+
+            // Visibilidad
+            if (containerMiembros != null) { containerMiembros.setVisible(false); containerMiembros.setManaged(false); }
+            if (btnEditarPerfil != null) {
+                boolean esElMio = p.getUsername() != null && p.getUsername().equals(nombreUsuario);
+                btnEditarPerfil.setVisible(esElMio);
+                btnEditarPerfil.setManaged(esElMio);
+            }
+            if (btnEliminarCanal != null) { btnEliminarCanal.setVisible(false); btnEliminarCanal.setManaged(false); }
+        });
     }
 
     private void ejecutarBanDirecto(String objetivo, String canal) {
@@ -434,47 +733,33 @@ public class ChatController {
         Platform.runLater(this::dibujarContactosActivos);
     }
 
-    private void dibujarContactosActivos() {
-        contactList.getChildren().clear();
+    public void dibujarContactosActivos() {
+        if (contactList == null) return;
+        String query = txtBuscador != null ? txtBuscador.getText() : "";
+        
+        contactManager.dibujarContactos(
+            contactList, chatsActivos, canalesActivos, chatsConMensajesNuevos, 
+            destinatarioActual, query, folderManager.getCurrentFolderId(), 
+            folderManager.getChatsInFolder(folderManager.getCurrentFolderId()),
+            (label, handler) -> {
+                // Mapeo de botones de acción
+                switch (label) {
+                    case "➕ Nuevo Chat" -> addBotonAccion(label, e -> mostrarDialogoNuevoChat());
+                    case "📢 Nuevo Canal" -> addBotonAccion(label, e -> mostrarDialogoNuevoCanal());
+                    case "📎 Enviar archivo" -> addBotonAccion(label, e -> onEnviarArchivoClick(null));
+                }
+            },
+            this::cambiarDestinatario
+        );
+        
+        // Botones condicionales (Moderación, Añadir Miembros) se añaden después o se integran en el manager
+        Platform.runLater(() -> {
+            if (esModerador())
+                addBotonAccion("🛡️ Moderación", e -> mostrarMenuModeracion());
 
-        // Botones de acción
-        addBotonAccion("➕ Nuevo Chat",    e -> mostrarDialogoNuevoChat());
-        addBotonAccion("📢 Nuevo Canal",   e -> mostrarDialogoNuevoCanal());
-        addBotonAccion("📎 Enviar archivo", e -> onEnviarArchivoClick(null));
-
-        if (esModerador())
-            addBotonAccion("🛡️ Moderación", e -> mostrarMenuModeracion());
-
-        if (canalesActivos.contains(destinatarioActual))
-            addBotonAccion("👥 Añadir miembros", e -> mostrarDialogoAñadirMiembros(destinatarioActual));
-
-        Label sep = new Label("CONVERSACIONES");
-        sep.setStyle("-fx-text-fill: #999; -fx-padding: 15 15 5 15; -fx-font-size: 11px; -fx-font-weight: bold;");
-        contactList.getChildren().add(sep);
-
-        String busqueda = txtBuscador != null && txtBuscador.getText() != null
-                ? txtBuscador.getText().toLowerCase().trim() : "";
-        String currentFolder = folderManager.getCurrentFolderId();
-
-        for (String chat : chatsActivos) {
-            if (!busqueda.isEmpty() && !chat.toLowerCase().contains(busqueda)) continue;
-
-            boolean visible = "all".equals(currentFolder)
-                    || ("unread".equals(currentFolder) && chatsConMensajesNuevos.contains(chat))
-                    || folderManager.getChatsInFolder(currentFolder).contains(chat);
-            if (!visible) continue;
-
-            String etiqueta = switch (chat) {
-                case "GENERAL" -> "💬 Sala General";
-                default -> canalesActivos.contains(chat) ? "📢 " + chat : "👤 " + chat;
-            };
-            if (chatsConMensajesNuevos.contains(chat) && !chat.equals(destinatarioActual))
-                etiqueta += " 🔔";
-
-            Button btn = crearBotonContacto(etiqueta, chat);
-            if (chat.equals(destinatarioActual)) btn.getStyleClass().add("contact-button-active");
-            contactList.getChildren().add(btn);
-        }
+            if (canalesActivos.contains(destinatarioActual))
+                addBotonAccion("👥 Añadir miembros", e -> mostrarDialogoAñadirMiembros(destinatarioActual));
+        });
     }
 
     private void addBotonAccion(String texto, javafx.event.EventHandler<ActionEvent> handler) {
@@ -522,49 +807,15 @@ public class ChatController {
 
         } else {
             contenedor.setAlignment(esPropio ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
-            VBox burbuja = new VBox();
-            burbuja.getStyleClass().addAll("message-bubble", esPropio ? "bubble-sent" : "bubble-received");
-
-            // Nombre del remitente + rol en canales/general
-            if (!esPropio && (salaAsociada.equals("GENERAL") || canalesActivos.contains(salaAsociada))) {
-                String etiquetaRemitente = mensaje.getRemitente();
-                if ("MODERATOR".equals(mensaje.getRolRemitente())) etiquetaRemitente += " 🛡️";
-                Label nombreLbl = new Label(etiquetaRemitente);
-                nombreLbl.getStyleClass().add("sender-name");
-                
-                // Si somos moderadores, permitimos pinchar en el nombre para moderar a ese usuario
-                if (esModerador()) {
-                    nombreLbl.setStyle(nombreLbl.getStyle() + "; -fx-cursor: hand;");
-                    nombreLbl.setOnMouseClicked(e -> mostrarMenuModeracionRapida(mensaje.getRemitente(), salaAsociada));
-                }
-                
-                burbuja.getChildren().add(nombreLbl);
-            }
-
-            Label txt  = new Label(mensaje.getContenido());
-            txt.getStyleClass().add("message-text");
-            txt.setWrapText(true);
-
-            Label hora = new Label(formatearHora(mensaje.getTimestamp()));
-            hora.getStyleClass().add("timestamp");
-
-            burbuja.getChildren().addAll(txt, hora);
-
-            // Botón "Borrar" para mensajes propios (privados, canales y general)
-            boolean esMensajeBorrable = esPropio && mensaje.getMensajeId() != null;
             
-            if (esMensajeBorrable) {
-                Button btnBorrar = new Button("✕");
-                btnBorrar.setStyle("-fx-background-color:transparent;-fx-text-fill:#cc0000;-fx-cursor:hand;-fx-font-size:10px;");
-                final String mid  = mensaje.getMensajeId();
-                final String sala = salaAsociada;
-                btnBorrar.setOnAction(e -> borrarMensajePropio(mid, sala));
-                burbuja.getChildren().add(btnBorrar);
-            }
+            StackPane bubbleStack = UIFactory.crearBurbujaMensaje(
+                mensaje, esPropio, salaAsociada, formatearHora(mensaje.getTimestamp()), 
+                esModerador(), this::borrarMensajePropio, this::mostrarMenuModeracionRapida
+            );
 
-            contenedor.getChildren().add(burbuja);
-            if (esPropio) HBox.setMargin(burbuja, new javafx.geometry.Insets(0,0,0,50));
-            else          HBox.setMargin(burbuja, new javafx.geometry.Insets(0,50,0,0));
+            contenedor.getChildren().add(bubbleStack);
+            if (esPropio) HBox.setMargin(bubbleStack, new javafx.geometry.Insets(0,0,0,50));
+            else          HBox.setMargin(bubbleStack, new javafx.geometry.Insets(0,50,0,0));
         }
 
         if (mensaje.getMensajeId() != null) burbujasById.put(mensaje.getMensajeId(), contenedor);
@@ -577,41 +828,29 @@ public class ChatController {
 
     public void registrarArchivoEnUI(DatosMensaje msg, boolean esPropio) {
         Platform.runLater(() -> {
+            boolean esCanal = canalesActivos.contains(msg.getDestino());
+            boolean esGeneral = "GENERAL".equals(msg.getDestino());
+
             HBox contenedor = new HBox();
             contenedor.setAlignment(esPropio ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT);
 
-            VBox burbuja = new VBox();
-            burbuja.getStyleClass().addAll("message-bubble", esPropio ? "bubble-sent" : "bubble-received");
+            boolean soyModeradorAqui = (esGeneral || esCanal) && esModerador();
+            
+            StackPane bubbleStack = UIFactory.crearBurbujaArchivo(
+                msg, esPropio, msg.getDestino(), formatearHora(msg.getTimestamp()),
+                soyModeradorAqui, this::borrarMensajePropio, this::descargarArchivo
+            );
 
-            Label titulo = new Label("📎 " + msg.getNombreArchivo());
-            titulo.getStyleClass().add("message-text");
-            titulo.setStyle("-fx-font-weight:bold;");
-
-            long kb = msg.getTamanoArchivo() / 1024;
-            Label info = new Label((kb > 0 ? kb + " KB" : msg.getTamanoArchivo() + " B")
-                    + " · " + formatearHora(msg.getTimestamp()));
-            info.getStyleClass().add("timestamp");
-
-            // Botón descargar (descifra y guarda)
-            Button btnDescargar = new Button("⬇ Descargar");
-            btnDescargar.setStyle("-fx-cursor:hand;-fx-background-color:#005f9e;-fx-text-fill:white;-fx-background-radius:6;-fx-padding:3 8;");
-            btnDescargar.setOnAction(e -> descargarArchivo(msg));
-
-            // Botón eliminar (solo moderador o emisor en canal)
-            if (esModerador() || esPropio) {
-                Button btnEliminar = new Button("🗑");
-                btnEliminar.setStyle("-fx-cursor:hand;-fx-background-color:transparent;-fx-text-fill:#cc0000;");
-                btnEliminar.setOnAction(ev -> eliminarArchivoRemoto(msg));
-                burbuja.getChildren().addAll(titulo, info, btnDescargar, btnEliminar);
-            } else {
-                burbuja.getChildren().addAll(titulo, info, btnDescargar);
-            }
-
-            contenedor.getChildren().add(burbuja);
+            contenedor.getChildren().add(bubbleStack);
             if (msg.getArchivoId() != null) burbujasById.put(msg.getArchivoId(), contenedor);
 
-            historialesChat.computeIfAbsent(msg.getDestino(), k -> new ArrayList<>()).add(contenedor);
-            if (destinatarioActual.equals(msg.getDestino())) {
+            String salaAsociada = msg.getDestino();
+            if (nombreUsuario.equals(msg.getDestino())) {
+                salaAsociada = msg.getRemitente();
+            }
+
+            historialesChat.computeIfAbsent(salaAsociada, k -> new ArrayList<>()).add(contenedor);
+            if (destinatarioActual.equals(salaAsociada)) {
                 chatContainer.getChildren().add(contenedor);
                 scrollAlFinal();
             }
@@ -645,6 +884,40 @@ public class ChatController {
     }
 
     public void registrarMensajeSistema(String texto) {
+        if (texto == null) return;
+        
+        // Detectar si nos han dado permisos de moderador temporal
+        if (texto.contains("Has recibido permisos de moderador temporal en el canal")) {
+            int start = texto.indexOf("'") + 1;
+            int end = texto.indexOf("'", start);
+            if (start > 0 && end > start) {
+                String canal = texto.substring(start, end);
+                canalesDondeSoyModTemporal.add(canal);
+                Platform.runLater(() -> {
+                    dibujarContactosActivos();
+                    if (destinatarioActual.equals(canal)) {
+                        refrescarChatActual(); // Re-renderizar para habilitar clicks
+                    }
+                });
+            }
+        }
+        
+        // Detectar si han expirado
+        if (texto.contains("Tu promoción temporal de moderador en el canal") && texto.contains("ha expirado")) {
+            int start = texto.indexOf("'") + 1;
+            int end = texto.indexOf("'", start);
+            if (start > 0 && end > start) {
+                String canal = texto.substring(start, end);
+                canalesDondeSoyModTemporal.remove(canal);
+                Platform.runLater(() -> {
+                    dibujarContactosActivos();
+                    if (destinatarioActual.equals(canal)) {
+                        refrescarChatActual(); // Re-renderizar para quitar clicks
+                    }
+                });
+            }
+        }
+
         DatosMensaje msg = new DatosMensaje();
         msg.setRemitente("SISTEMA");
         msg.setContenido(texto);
@@ -674,8 +947,9 @@ public class ChatController {
             nd.setTitle("Nuevo Canal"); nd.setHeaderText("Nombre del canal:");
             Optional<String> r = nd.showAndWait();
             if (r.isEmpty()) return;
-            nombreCanal = r.get().trim();
-            if (nombreCanal.isBlank()) { mostrarAlertaError("El nombre no puede estar vacío."); continue; }
+            nombreCanal = ValidadorEntrada.sanitizarCampoPerfil(r.get());
+            if (nombreCanal == null || nombreCanal.isBlank()) { mostrarAlertaError("El nombre no puede estar vacío."); continue; }
+            if (ValidadorEntrada.contieneURL(nombreCanal)) { mostrarAlertaError("El nombre del canal no puede contener URLs."); continue; }
 
             ListView<String> lv = new ListView<>();
             lv.getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
@@ -725,10 +999,13 @@ public class ChatController {
         d.showAndWait().ifPresent(sel -> {
             if (sel.isEmpty()) return;
             try {
-                DatosMensaje msg = new DatosMensaje();
-                msg.setTipo(TipoMensaje.ADD_MIEMBROS_CANAL);
-                msg.setRemitente(nombreUsuario); msg.setDestino(canal); msg.setMiembros(sel);
-                enviarAlServidorExterno(msg);
+                for (String usuario : sel) {
+                    DatosMensaje msg = new DatosMensaje();
+                    msg.setTipo(TipoMensaje.SOLICITUD_UNION_CANAL);
+                    msg.setDestino(usuario);
+                    msg.setContenido(canal);
+                    enviarAlServidorExterno(msg);
+                }
             } catch (IOException e) { e.printStackTrace(); }
         });
     }
@@ -740,8 +1017,81 @@ public class ChatController {
             mostrarAlerta("No hay usuarios nuevos disponibles."); return;
         }
         ChoiceDialog<String> d = new ChoiceDialog<>(opciones.get(0), opciones);
-        d.setTitle("Nuevo Chat"); d.setHeaderText("Selecciona usuario:");
-        d.showAndWait().ifPresent(u -> { chatsActivos.add(u); cambiarDestinatario(u); });
+        d.setTitle("Nuevo Chat"); d.setHeaderText("Selecciona usuario para enviar solicitud:");
+        d.showAndWait().ifPresent(u -> {
+            try {
+                DatosMensaje req = new DatosMensaje();
+                req.setTipo(TipoMensaje.SOLICITUD_CHAT_PRIVADO);
+                req.setDestino(u);
+                enviarAlServidorExterno(req);
+            } catch (IOException e) { e.printStackTrace(); }
+        });
+    }
+
+    public void manejarSolicitudChat(DatosMensaje msg) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Solicitud de Chat");
+            alert.setHeaderText(msg.getRemitente() + " quiere chatear contigo por privado.");
+            alert.setContentText("¿Aceptas la solicitud?");
+
+            ButtonType btnAceptar = new ButtonType("Aceptar", ButtonBar.ButtonData.OK_DONE);
+            ButtonType btnRechazar = new ButtonType("Rechazar", ButtonBar.ButtonData.CANCEL_CLOSE);
+            alert.getButtonTypes().setAll(btnAceptar, btnRechazar);
+
+            alert.showAndWait().ifPresent(tipo -> {
+                boolean aceptado = (tipo == btnAceptar);
+                try {
+                    DatosMensaje resp = new DatosMensaje();
+                    resp.setTipo(TipoMensaje.RESPUESTA_CHAT_PRIVADO);
+                    resp.setDestino(msg.getRemitente());
+                    resp.setSuccess(aceptado);
+                    enviarAlServidorExterno(resp);
+
+                    if (aceptado) {
+                        chatsActivos.add(msg.getRemitente());
+                        cambiarDestinatario(msg.getRemitente());
+                    }
+                } catch (IOException e) { e.printStackTrace(); }
+            });
+        });
+    }
+
+    public void manejarRespuestaChat(DatosMensaje msg) {
+        Platform.runLater(() -> {
+            if (msg.isSuccess()) {
+                mostrarAlerta(msg.getRemitente() + " ha aceptado tu solicitud de chat.");
+                chatsActivos.add(msg.getRemitente());
+                cambiarDestinatario(msg.getRemitente());
+            } else {
+                mostrarAlertaError(msg.getRemitente() + " ha rechazado tu solicitud de chat.");
+            }
+        });
+    }
+
+    public void manejarSolicitudCanal(DatosMensaje msg) {
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Invitación a Canal");
+            alert.setHeaderText(msg.getRemitente() + " te invita al canal: " + msg.getContenido());
+            alert.setContentText("¿Quieres unirte?");
+
+            ButtonType btnAceptar = new ButtonType("Aceptar", ButtonBar.ButtonData.OK_DONE);
+            ButtonType btnRechazar = new ButtonType("Rechazar", ButtonBar.ButtonData.CANCEL_CLOSE);
+            alert.getButtonTypes().setAll(btnAceptar, btnRechazar);
+
+            alert.showAndWait().ifPresent(tipo -> {
+                boolean aceptado = (tipo == btnAceptar);
+                try {
+                    DatosMensaje resp = new DatosMensaje();
+                    resp.setTipo(TipoMensaje.RESPUESTA_UNION_CANAL);
+                    resp.setDestino(msg.getRemitente());
+                    resp.setContenido(msg.getContenido());
+                    resp.setSuccess(aceptado);
+                    enviarAlServidorExterno(resp);
+                } catch (IOException e) { e.printStackTrace(); }
+            });
+        });
     }
 
     // =========================================================================
@@ -793,12 +1143,29 @@ public class ChatController {
     public void inicializarGestoresPerfilesYCarpetas() {
         profileManager = new ProfileManager();
         folderManager  = new ChatFolderManager();
+        profileService = new ProfileService(this, profileManager);
+        
         UserProfile perfil = profileManager.getProfileByUsername(nombreUsuario);
         if (perfil == null) perfil = profileManager.createProfile(nombreUsuario, nombreUsuario);
         currentUserProfile = perfil;
         profileManager.setCurrentProfile(perfil);
+
+        this.isDarkMode = currentUserProfile.isDarkMode();
+        aplicarTema(isDarkMode);
+
         actualizarPanelPerfil();
         inicializarCarpetas();
+        sincronizarPerfilConServidor();
+    }
+    private void sincronizarPerfilConServidor() {
+        if (currentUserProfile == null) return;
+        try {
+            DatosMensaje sync = new DatosMensaje();
+            sync.setTipo(TipoMensaje.SYNC_PROFILE);
+            sync.setRemitente(nombreUsuario);
+            sync.setUserProfile(currentUserProfile);
+            enviarAlServidorExterno(sync);
+        } catch (IOException e) { e.printStackTrace(); }
     }
 
     private void actualizarPanelPerfil() {
@@ -808,12 +1175,30 @@ public class ChatController {
             if (userName      != null) userName.setText(currentUserProfile.getDisplayName()
                     + (esModerador() ? " 🛡️" : ""));
             if (userStatus    != null) userStatus.setText(currentUserProfile.getStatusText());
-            if (profileAvatarBig != null) profileAvatarBig.setText(currentUserProfile.getAvatarInitials());
+            if (lblPanelTitulo != null) lblPanelTitulo.setText("Perfil de Usuario");
+            if (profileAvatarBig != null) {
+                profileAvatarBig.setText(currentUserProfile.getAvatarInitials());
+                profileAvatarBig.setStyle("-fx-background-color: #005f9e; -fx-text-fill: white; -fx-font-size: 26; -fx-font-weight: bold; -fx-background-radius: 40;");
+            }
             if (profileName   != null) profileName.setText(currentUserProfile.getDisplayName());
-            if (profileStatusLabel != null) profileStatusLabel.setText(currentUserProfile.getStatusText());
+            
+            // Restaurar etiquetas de Perfil de Usuario
+            if (infoIcon1 != null) infoIcon1.setText("📞");
+            if (infoLabel1 != null) infoLabel1.setText("Teléfono");
+            if (infoIcon2 != null) infoIcon2.setText("✉");
+            if (infoLabel2 != null) infoLabel2.setText("Correo");
+            if (infoIcon3 != null) infoIcon3.setText("📝");
+            if (infoLabel3 != null) infoLabel3.setText("Biografía");
+            if (rowEmail != null) { rowEmail.setVisible(true); rowEmail.setManaged(true); }
+
             if (profilePhone  != null) profilePhone.setText(nvl(currentUserProfile.getPhoneNumber(), "No especificado"));
             if (profileEmail  != null) profileEmail.setText(nvl(currentUserProfile.getEmail(), "No especificado"));
             if (profileBio    != null) profileBio.setText(nvl(currentUserProfile.getBio(), "No especificado"));
+
+            // Visibilidad de componentes
+            if (containerMiembros != null) { containerMiembros.setVisible(false); containerMiembros.setManaged(false); }
+            if (btnEditarPerfil != null) { btnEditarPerfil.setVisible(true); btnEditarPerfil.setManaged(true); }
+            if (btnEliminarCanal != null) { btnEliminarCanal.setVisible(false); btnEliminarCanal.setManaged(false); }
         });
     }
 
@@ -845,105 +1230,101 @@ public class ChatController {
             profilePanelVisible = !profilePanelVisible;
             profilePanel.setVisible(profilePanelVisible);
             profilePanel.setManaged(profilePanelVisible);
+
+            if (profilePanelVisible) {
+                solicitarInfoContexto();
+            }
         }
+    }
+
+    public void mostrarInfoContexto(Map<String, Object> data) {
+        if (data == null || profilePanel == null) return;
+        Platform.runLater(() -> {
+            String type = (String) data.get("type");
+            String name = (String) data.get("name");
+            String id   = (String) data.get("id");
+            String initials = name != null && !name.isEmpty() ? name.substring(0, 1).toUpperCase() : "?";
+            
+            if (profileAvatarBig != null) {
+                profileAvatarBig.setText(initials);
+                profileAvatarBig.setStyle("-fx-background-color: " + 
+                    ("SALA".equals(type) ? "#27ae60" : ("CANAL".equals(type) ? "#e67e22" : "#005f9e")) + 
+                    "; -fx-text-fill: white; -fx-font-size: 26; -fx-font-weight: bold; -fx-background-radius: 40;");
+            }
+            if (profileName != null) profileName.setText(name);
+            if (lblPanelTitulo != null) {
+                if ("SALA".equals(type)) lblPanelTitulo.setText("Datos de la Sala");
+                else if ("CANAL".equals(type)) lblPanelTitulo.setText("Datos del Canal");
+                else lblPanelTitulo.setText("Perfil de Usuario");
+            }
+
+            // Reutilizamos campos para mostrar info del canal/sala
+            if ("SALA".equals(type) || "CANAL".equals(type)) {
+                // Ajustar etiquetas
+                if (infoIcon1 != null) infoIcon1.setText("📅");
+                if (infoLabel1 != null) infoLabel1.setText("Fecha de creación");
+                if (infoIcon3 != null) infoIcon3.setText("📄");
+                if (infoLabel3 != null) infoLabel3.setText("Descripción");
+                
+                // El email no lo usamos aquí, usamos la lista de miembros
+                if (rowEmail != null) { rowEmail.setVisible(false); rowEmail.setManaged(false); }
+
+                if (profilePhone != null) {
+                    if ("SALA".equals(type)) profilePhone.setText("Canal predeterminado");
+                    else {
+                        Object createdObj = data.get("created");
+                        if (createdObj instanceof LocalDateTime created) {
+                            profilePhone.setText(created.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")));
+                        } else {
+                            profilePhone.setText("Desconocida");
+                        }
+                    }
+                }
+                
+                if (profileBio != null) {
+                    if ("SALA".equals(type)) profileBio.setText((String) data.get("description"));
+                    else profileBio.setText("Moderador: " + data.get("moderator"));
+                }
+
+                // Lista de miembros
+                if (containerMiembros != null) { containerMiembros.setVisible(true); containerMiembros.setManaged(true); }
+                contactManager.dibujarMiembros(listMiembros, (List<String>) data.get("members"), 
+                                             usuariosEnLinea, nombreUsuario, esModerador(), id, 
+                                             this::mostrarMenuModeracionRapida);
+
+                // Botones
+                if (btnEditarPerfil != null) { btnEditarPerfil.setVisible(false); btnEditarPerfil.setManaged(false); }
+                if (btnEliminarCanal != null) {
+                    btnEliminarCanal.setVisible(true);
+                    btnEliminarCanal.setManaged(true);
+                    btnEliminarCanal.setDisable("GENERAL".equals(id));
+                }
+
+            } else {
+                // Si es un usuario (chat privado), pedimos el perfil completo
+                solicitarPerfilExterno(name);
+            }
+        });
+    }
+
+    @FXML
+    public void onEliminarCanalClick(ActionEvent event) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Eliminar Canal");
+        confirm.setHeaderText("¿Estás seguro de que quieres eliminar el canal '" + destinatarioActual + "'?");
+        confirm.setContentText("Esta acción no se puede deshacer.");
+
+        confirm.showAndWait().ifPresent(res -> {
+            if (res == ButtonType.OK) {
+                mostrarAlerta("Funcionalidad de borrado de canal en desarrollo.");
+            }
+        });
     }
 
     @FXML
     public void onEditarPerfilClick(ActionEvent event) {
-        if (currentUserProfile == null) return;
-
-        List<String> opciones = List.of(
-                "Nombre para mostrar",
-                "Teléfono",
-                "Correo electrónico",
-                "Biografía"
-        );
-
-        ChoiceDialog<String> menu = new ChoiceDialog<>(opciones.get(0), opciones);
-        menu.setTitle("Editar Perfil");
-        menu.setHeaderText("¿Qué campo deseas modificar?");
-        menu.setContentText("Selecciona una opción:");
-
-        menu.showAndWait().ifPresent(seleccion -> {
-            switch (seleccion) {
-                case "Nombre para mostrar" -> editarNombrePublico();
-                case "Teléfono"           -> editarTelefono();
-                case "Correo electrónico" -> editarEmail();
-                case "Biografía"          -> editarBio();
-            }
-        });
-    }
-
-    private void editarNombrePublico() {
-        TextInputDialog d = new TextInputDialog(currentUserProfile.getDisplayName());
-        d.setTitle("Editar Perfil");
-        d.setHeaderText("Cambiar nombre para mostrar");
-        d.setContentText("Introduce el nuevo nombre público:");
-        
-        d.showAndWait().ifPresent(nuevo -> {
-            String valor = nuevo.trim();
-            if (valor.isEmpty()) {
-                mostrarAlertaError("El nombre no puede estar vacío.");
-                return;
-            }
-
-            // Validación mejorada: no puede ser igual al nick de NADIE que conozcamos
-            // (los usuarios en línea son una buena aproximación en cliente)
-            boolean existe = usuariosEnLinea.stream()
-                    .anyMatch(u -> u.equalsIgnoreCase(valor));
-
-            if (existe && !valor.equalsIgnoreCase(nombreUsuario)) {
-                mostrarAlertaError("No puedes usar '" + valor + "' porque ya existe un usuario con ese identificador.");
-            } else {
-                currentUserProfile.setDisplayName(valor);
-                guardarYRefrescarPerfil();
-            }
-        });
-    }
-
-    private void editarTelefono() {
-        TextInputDialog d = new TextInputDialog(nvl(currentUserProfile.getPhoneNumber(), ""));
-        d.setTitle("Editar Perfil"); d.setHeaderText("Cambiar teléfono");
-        d.showAndWait().ifPresent(v -> {
-            String valor = v.trim();
-            if (!valor.isEmpty()) {
-                // Verificar si otro perfil ya tiene este teléfono
-                boolean duplicado = profileManager.getAllProfiles().stream()
-                        .anyMatch(p -> !p.getUsername().equals(nombreUsuario) && valor.equalsIgnoreCase(p.getPhoneNumber()));
-                if (duplicado) {
-                    mostrarAlertaError("Este número de teléfono ya está registrado por otro usuario.");
-                    return;
-                }
-            }
-            currentUserProfile.setPhoneNumber(valor);
-            guardarYRefrescarPerfil();
-        });
-    }
-
-    private void editarEmail() {
-        TextInputDialog d = new TextInputDialog(nvl(currentUserProfile.getEmail(), ""));
-        d.setTitle("Editar Perfil"); d.setHeaderText("Cambiar correo");
-        d.showAndWait().ifPresent(v -> {
-            String valor = v.trim();
-            if (!valor.isEmpty()) {
-                // Verificar si otro perfil ya tiene este correo
-                boolean duplicado = profileManager.getAllProfiles().stream()
-                        .anyMatch(p -> !p.getUsername().equals(nombreUsuario) && valor.equalsIgnoreCase(p.getEmail()));
-                if (duplicado) {
-                    mostrarAlertaError("Este correo electrónico ya está registrado por otro usuario.");
-                    return;
-                }
-            }
-            currentUserProfile.setEmail(valor);
-            guardarYRefrescarPerfil();
-        });
-    }
-
-    private void editarBio() {
-        TextInputDialog d = new TextInputDialog(nvl(currentUserProfile.getBio(), ""));
-        d.setTitle("Editar Perfil"); d.setHeaderText("Cambiar biografía");
-        d.showAndWait().ifPresent(v -> {
-            currentUserProfile.setBio(v.trim());
+        profileService.iniciarEdicionPerfil(currentUserProfile, usuariosEnLinea, p -> {
+            currentUserProfile = p;
             guardarYRefrescarPerfil();
         });
     }
@@ -951,6 +1332,7 @@ public class ChatController {
     private void guardarYRefrescarPerfil() {
         profileManager.updateProfile(currentUserProfile);
         actualizarPanelPerfil();
+        sincronizarPerfilConServidor(); 
     }
 
     @FXML public void buscando(InputMethodEvent e) {}
@@ -960,7 +1342,7 @@ public class ChatController {
     // =========================================================================
 
     public void enviarAlServidorExterno(DatosMensaje msg) throws IOException {
-        synchronized (salida) { salida.reset(); salida.writeObject(msg); salida.flush(); }
+        chatService.enviarAlServidor(msg);
     }
 
     private Button crearBotonContacto(String etiqueta, String destino) {
@@ -973,6 +1355,16 @@ public class ChatController {
 
     private void scrollAlFinal() {
         Platform.runLater(() -> { if (scrollChat != null) scrollChat.setVvalue(1.0); });
+    }
+
+    /**
+     * Re-renderiza el chat actual basándose en el historial guardado.
+     * Útil para cuando cambian los permisos de moderación.
+     */
+    private void refrescarChatActual() {
+        if (destinatarioActual != null) {
+            cambiarDestinatario(destinatarioActual);
+        }
     }
 
     private String formatearHora(LocalDateTime ts) {
@@ -992,18 +1384,6 @@ public class ChatController {
 
     private static String nvl(String v, String def) {
         return (v != null && !v.isBlank()) ? v : def;
-    }
-
-    private DatosMensaje clonarConContenido(DatosMensaje original, String contenidoPlano) {
-        DatosMensaje c = new DatosMensaje();
-        c.setTipo(original.getTipo());
-        c.setRemitente(original.getRemitente());
-        c.setDestino(original.getDestino());
-        c.setContenido(contenidoPlano);
-        c.setTimestamp(original.getTimestamp());
-        c.setMensajeId(original.getMensajeId());
-        c.setRolRemitente(rolUsuario);
-        return c;
     }
 
     // Getters para HiloCliente / externos

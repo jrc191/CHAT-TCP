@@ -219,6 +219,35 @@
 .send-button:hover  { -fx-background-color: #1278c3; }
 .send-button:pressed { -fx-background-color: #00497b; }
 
+/* ─── ContextMenu Estilizado ─────────────────────────────────────────── */
+.context-menu {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: #e2e2e2;
+    -fx-border-width: 1;
+    -fx-padding: 5 0 5 0;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 10, 0, 0, 4);
+}
+
+.menu-item {
+    -fx-padding: 8 20 8 20;
+    -fx-background-color: transparent;
+}
+
+.menu-item .label {
+    -fx-text-fill: #1a1c1c;
+    -fx-font-size: 13px;
+}
+
+.menu-item:focused {
+    -fx-background-color: #f3f3f3;
+}
+
+.menu-item:focused .label {
+    -fx-text-fill: #005f9e;
+}
+
 /* ─── Botón primario ancho (usado en login) ────────────────────────────── */
 .login-button {
     -fx-background-color: #005f9e;

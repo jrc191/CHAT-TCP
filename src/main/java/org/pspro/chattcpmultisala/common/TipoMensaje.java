@@ -54,4 +54,24 @@ public enum TipoMensaje {
     // ========================================
     REQUEST_PROFILE,
     PROFILE_RESPONSE,
+
+    // ========================================
+    // NOTIFICACIONES Y PETICIONES (Aceptación)
+    // ========================================
+    SOLICITUD_CHAT_PRIVADO,
+    RESPUESTA_CHAT_PRIVADO,
+    SOLICITUD_UNION_CANAL,
+    RESPUESTA_UNION_CANAL,
+    NOTIFICACION_SISTEMA,
+
+    // ========================================
+    // INFORMACIÓN DE CONTEXTO (Sala/Canal)
+    // ========================================
+    REQUEST_CONTEXT_INFO,
+    CONTEXT_INFO_RESPONSE,
+
+    // ========================================
+    // SINCRONIZACIÓN DE PERFILES (Servidor)
+    // ========================================
+    SYNC_PROFILE
 }

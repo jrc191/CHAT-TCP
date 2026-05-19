@@ -8,13 +8,13 @@
 <?import javafx.scene.layout.HBox?>
 <?import javafx.scene.layout.VBox?>
 
-<HBox prefHeight="640" prefWidth="960" spacing="0" stylesheets="@chat.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.pspro.chattcpmultisala.cliente.controladores.ChatController">
+<HBox fx:id="mainRoot" prefHeight="640" prefWidth="960" spacing="0" stylesheets="@chat.css" xmlns="http://javafx.com/javafx/26" xmlns:fx="http://javafx.com/fxml/1" fx:controller="org.pspro.chattcpmultisala.cliente.controladores.ChatController">
 
     <!-- ═══════════════ SIDEBAR (280 px fijo) ═══════════════ -->
-    <VBox maxWidth="280" minWidth="280" prefWidth="280" style="-fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 1 0 0;">
+    <VBox maxWidth="280" minWidth="280" prefWidth="280" styleClass="sidebar" style="-fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 1 0 0;">
 
         <!-- Cabecera perfil propio -->
-        <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="10" style="-fx-padding: 12 14 12 14; -fx-background-color: #f3f3f3; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
+        <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="10" styleClass="sidebar-header" style="-fx-padding: 12 14 12 14; -fx-background-color: #f3f3f3; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
             <Label fx:id="userAvatar" alignment="CENTER" maxHeight="42" maxWidth="42" minHeight="42" minWidth="42" prefHeight="42" prefWidth="42" style="-fx-background-color: #005f9e; -fx-text-fill: #ffffff; -fx-font-size: 15; -fx-font-weight: bold; -fx-background-radius: 21;" text="U" />
             <VBox spacing="2" HBox.hgrow="ALWAYS">
                 <Label fx:id="userName" maxWidth="Infinity" prefHeight="41.0" prefWidth="158.0" style="-fx-font-size: 14; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Usuario" />
@@ -43,10 +43,10 @@
     </VBox>
 
     <!-- ═══════════════ CHAT (crece) ═══════════════ -->
-    <VBox spacing="0" style="-fx-background-color: #e8e0d8;" HBox.hgrow="ALWAYS">
+    <VBox spacing="0" styleClass="chat-area" style="-fx-background-color: #e8e0d8;" HBox.hgrow="ALWAYS">
 
         <!-- Cabecera chat -->
-        <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="12" style="-fx-padding: 12 16 12 16; -fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
+        <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="12" styleClass="chat-header" style="-fx-padding: 12 16 12 16; -fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
             <Label fx:id="lblTituloChat" maxWidth="Infinity" style="-fx-font-size: 15; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Sala de Chat General" HBox.hgrow="ALWAYS" />
             <Button onAction="#onToggleProfilePanel" style="-fx-background-color: transparent; -fx-text-fill: #005f9e; -fx-font-size: 17; -fx-cursor: hand; -fx-padding: 4 8 4 8;" text="ℹ" />
         </HBox>
@@ -59,23 +59,22 @@
         </ScrollPane>
 
         <!-- Input -->
-        <HBox alignment="CENTER" minHeight="62" prefHeight="62" spacing="10" style="-fx-padding: 10 14 10 14; -fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 1 0 0 0;">
+        <HBox alignment="CENTER" minHeight="62" prefHeight="62" spacing="10" styleClass="input-area" style="-fx-padding: 10 14 10 14; -fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 1 0 0 0;">
+            <Button onAction="#onEnviarArchivoClick" style="-fx-background-color: transparent; -fx-text-fill: #707882; -fx-font-size: 18; -fx-cursor: hand; -fx-padding: 4 8 4 8;" text="📎" />
             <TextField fx:id="txtMensaje" onAction="#onEnviarClick" promptText="Escribe un mensaje..." style="-fx-background-color: #eeeeee; -fx-background-radius: 18; -fx-border-radius: 18; -fx-border-color: transparent; -fx-padding: 8 14 8 14; -fx-font-size: 14;" HBox.hgrow="ALWAYS" />
             <Button fx:id="btnEnviar" minHeight="42" minWidth="42" onAction="#onEnviarClick" prefHeight="42" prefWidth="42" style="-fx-background-color: #005f9e; -fx-background-radius: 21; -fx-text-fill: white; -fx-font-size: 15; -fx-cursor: hand;" text="➤" />
         </HBox>
     </VBox>
 
-    <!-- ═══════════════ PANEL PERFIL (oculto por defecto) ═══════════════
-         visible="false" managed="false" → ocupa 0px hasta que se activa.
-         onToggleProfilePanel() cambia ambas propiedades a true/false.
-    ════════════════════════════════════════════════════════════════════ -->
-    <AnchorPane fx:id="profilePanel" managed="false" maxWidth="300" minWidth="300" prefWidth="300" style="-fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 0 1;" visible="false">
+    <!-- ═══════════════ PANEL PERFIL (oculto por defecto) ═══════════════ -->
+    <AnchorPane fx:id="profilePanel" managed="false" maxWidth="300" minWidth="300" prefWidth="300" styleClass="profile-panel" style="-fx-background-color: #ffffff; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 0 1;" visible="false">
 
         <VBox spacing="0" AnchorPane.bottomAnchor="0" AnchorPane.leftAnchor="0" AnchorPane.rightAnchor="0" AnchorPane.topAnchor="0">
 
             <!-- Cabecera panel perfil -->
-            <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="10" style="-fx-padding: 12 14 12 14; -fx-background-color: #f3f3f3; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
-                <Label maxWidth="Infinity" style="-fx-font-size: 15; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Perfil" HBox.hgrow="ALWAYS" />
+            <HBox alignment="CENTER_LEFT" minHeight="64" prefHeight="64" spacing="10" styleClass="profile-header" style="-fx-padding: 12 14 12 14; -fx-background-color: #f3f3f3; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
+                <Label fx:id="lblPanelTitulo" maxWidth="Infinity" style="-fx-font-size: 15; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Perfil" HBox.hgrow="ALWAYS" />
+                <Button onAction="#onToggleDarkMode" style="-fx-background-color: transparent; -fx-text-fill: #005f9e; -fx-font-size: 16; -fx-cursor: hand;" text="🌓" />
                 <Button onAction="#onToggleProfilePanel" style="-fx-background-color: transparent; -fx-text-fill: #707882; -fx-font-size: 13; -fx-cursor: hand; -fx-padding: 4 8 4 8;" text="✕" />
             </HBox>
 
@@ -84,44 +83,57 @@
                 <content>
                     <VBox spacing="0">
 
-                        <VBox alignment="CENTER" spacing="8" style="-fx-padding: 26 20 18 20; -fx-background-color: #f9f9f9; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
+                        <VBox alignment="CENTER" spacing="8" styleClass="profile-avatar-bg" style="-fx-padding: 26 20 18 20; -fx-background-color: #f9f9f9; -fx-border-color: #e2e2e2; -fx-border-width: 0 0 1 0;">
                             <children>
                                 <Label fx:id="profileAvatarBig" alignment="CENTER" maxHeight="80" maxWidth="80" minHeight="80" minWidth="80" prefHeight="80" prefWidth="80" style="-fx-background-color: #005f9e; -fx-text-fill: #ffffff; -fx-font-size: 26; -fx-font-weight: bold; -fx-background-radius: 40;" text="U" />
                                 <Label fx:id="profileName" alignment="CENTER" maxWidth="Infinity" style="-fx-font-size: 17; -fx-font-weight: bold; -fx-text-fill: #1a1c1c;" text="Usuario" wrapText="true" />
-                                <!-- profileStatusLabel eliminado -->
                             </children>
                         </VBox>
 
-                        <!-- Teléfono -->
-                        <HBox alignment="CENTER_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18; -fx-border-color: #eeeeee; -fx-border-width: 0 0 1 0;">
-                            <Label style="-fx-font-size: 15; -fx-min-width: 22;" text="📞" />
-                            <VBox spacing="2" HBox.hgrow="ALWAYS">
-                                <Label fx:id="profilePhone" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="No especificado" wrapText="true" />
-                                <Label style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Teléfono" />
-                            </VBox>
-                        </HBox>
+                        <!-- Campos dinámicos de información -->
+                        <VBox fx:id="profileInfoFields">
+                            <!-- Teléfono / Fecha Creación -->
+                            <HBox alignment="CENTER_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18; -fx-border-color: #eeeeee; -fx-border-width: 0 0 1 0;">
+                                <Label fx:id="infoIcon1" style="-fx-font-size: 15; -fx-min-width: 22;" text="📞" />
+                                <VBox spacing="2" HBox.hgrow="ALWAYS">
+                                    <Label fx:id="profilePhone" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="No especificado" wrapText="true" />
+                                    <Label fx:id="infoLabel1" style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Teléfono" />
+                                </VBox>
+                            </HBox>
 
-                        <!-- Email -->
-                        <HBox alignment="CENTER_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18; -fx-border-color: #eeeeee; -fx-border-width: 0 0 1 0;">
-                            <Label style="-fx-font-size: 15; -fx-min-width: 22;" text="✉" />
-                            <VBox spacing="2" HBox.hgrow="ALWAYS">
-                                <Label fx:id="profileEmail" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="No especificado" wrapText="true" />
-                                <Label style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Correo" />
-                            </VBox>
-                        </HBox>
+                            <!-- Email / Miembros activos -->
+                            <HBox fx:id="rowEmail" alignment="CENTER_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18; -fx-border-color: #eeeeee; -fx-border-width: 0 0 1 0;">
+                                <Label fx:id="infoIcon2" style="-fx-font-size: 15; -fx-min-width: 22;" text="✉" />
+                                <VBox spacing="2" HBox.hgrow="ALWAYS">
+                                    <Label fx:id="profileEmail" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="No especificado" wrapText="true" />
+                                    <Label fx:id="infoLabel2" style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Correo" />
+                                </VBox>
+                            </HBox>
 
-                        <!-- Bio -->
-                        <HBox alignment="TOP_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18;">
-                            <Label style="-fx-font-size: 15; -fx-min-width: 22;" text="📝" />
-                            <VBox spacing="2" HBox.hgrow="ALWAYS">
-                                <Label fx:id="profileBio" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="Sin biografía" wrapText="true" />
-                                <Label style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Biografía" />
-                            </VBox>
-                        </HBox>
+                            <!-- Bio / Descripción / Moderador -->
+                            <HBox alignment="TOP_LEFT" minHeight="50" spacing="12" style="-fx-padding: 12 18 12 18;">
+                                <Label fx:id="infoIcon3" style="-fx-font-size: 15; -fx-min-width: 22;" text="📝" />
+                                <VBox spacing="2" HBox.hgrow="ALWAYS">
+                                    <Label fx:id="profileBio" style="-fx-font-size: 13; -fx-text-fill: #1a1c1c;" text="Sin biografía" wrapText="true" />
+                                    <Label fx:id="infoLabel3" style="-fx-font-size: 11; -fx-text-fill: #707882;" text="Biografía" />
+                                </VBox>
+                            </HBox>
+                        </VBox>
 
-                        <!-- Botón Editar -->
-                        <VBox alignment="CENTER" style="-fx-padding: 20;">
-                            <Button onAction="#onEditarPerfilClick" style="-fx-background-color: #005f9e; -fx-text-fill: white; -fx-background-radius: 18; -fx-padding: 8 20; -fx-cursor: hand;" text="Editar Perfil" />
+                        <!-- Lista de miembros (solo para canales/salas) -->
+                        <VBox fx:id="containerMiembros" spacing="8" style="-fx-padding: 12 18 12 18; -fx-border-color: #eeeeee; -fx-border-width: 1 0 0 0;" visible="false" managed="false">
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #707882; -fx-font-size: 11;" text="LISTADO DE USUARIOS" />
+                            <ScrollPane fitToWidth="true" hbarPolicy="NEVER" maxHeight="200" style="-fx-background-color: transparent; -fx-border-color: transparent;" vbarPolicy="AS_NEEDED">
+                                <content>
+                                    <VBox fx:id="listMiembros" spacing="5" />
+                                </content>
+                            </ScrollPane>
+                        </VBox>
+
+                        <!-- Botones de Acción -->
+                        <VBox alignment="CENTER" spacing="10" style="-fx-padding: 20;">
+                            <Button fx:id="btnEditarPerfil" onAction="#onEditarPerfilClick" style="-fx-background-color: #005f9e; -fx-text-fill: white; -fx-background-radius: 18; -fx-padding: 8 20; -fx-cursor: hand;" text="Editar Perfil" />
+                            <Button fx:id="btnEliminarCanal" onAction="#onEliminarCanalClick" style="-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-background-radius: 18; -fx-padding: 8 20; -fx-cursor: hand;" text="Eliminar Canal" visible="false" managed="false" />
                         </VBox>
 
                     </VBox>

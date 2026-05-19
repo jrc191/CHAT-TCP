@@ -41,9 +41,11 @@ public class ServidorChat {
             }
         }
 
-        // ── Inicializar gestor de usuarios ────────────────────────────────────
+        // ── Inicializar gestores ──────────────────────────────────────────────
         GestorUsuarios gestorUsuarios = new GestorUsuarios();
         gestorUsuarios.inicializarArchivoPorDefecto();
+        
+        GestorPerfiles gestorPerfiles = new GestorPerfiles();
 
         InfoHilos infoh = new InfoHilos(numMaxConexiones);
 
@@ -101,7 +103,7 @@ public class ServidorChat {
                         + socketCliente.getInetAddress().getHostAddress()
                         + " | Conectados: " + infoh.getActuales() + "/" + numMaxConexiones);
 
-                HiloServidorChat hilo = new HiloServidorChat(socketCliente, infoh, gestorUsuarios);
+                HiloServidorChat hilo = new HiloServidorChat(socketCliente, infoh, gestorUsuarios, gestorPerfiles);
                 hilo.start();
             }
 

@@ -22,6 +22,7 @@ public class UserProfile implements Serializable {
     private String avatarColor;
     private boolean verified;
     private int unreadCount;
+    private boolean darkMode; // Preferencia de tema
 
     // Constructor vacío para serialización
     public UserProfile() {
@@ -29,6 +30,7 @@ public class UserProfile implements Serializable {
         this.avatarColor = "#005f9e";
         this.verified = false;
         this.unreadCount = 0;
+        this.darkMode = false;
     }
 
     // Constructor con datos básicos
@@ -47,6 +49,14 @@ public class UserProfile implements Serializable {
     }
 
     // Getters y Setters
+    public boolean isDarkMode() {
+        return darkMode;
+    }
+
+    public void setDarkMode(boolean darkMode) {
+        this.darkMode = darkMode;
+    }
+
     public String getUsername() {
         return username;
     }

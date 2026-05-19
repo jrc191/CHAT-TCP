@@ -3,6 +3,7 @@ package org.pspro.chattcpmultisala.servidor;
 import org.pspro.chattcpmultisala.common.DatosMensaje;
 
 import java.net.Socket;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,9 +32,13 @@ public class InfoHilos {
     private final Map<String, List<String>>       canales           = new ConcurrentHashMap<>();
     private final Map<String, String>             moderadoresCanal  = new ConcurrentHashMap<>();
     private final Map<String, Boolean>            canalesSuspendidos = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime>      fechasCreacionCanal = new ConcurrentHashMap<>();
 
     // ── Tablón de archivos: canalNombre → (archivoId → DatosMensaje) ─────────
     private final Map<String, Map<String, DatosMensaje>> archivosCanal = new ConcurrentHashMap<>();
+
+    // ── Permisos de chat privado: usuario → Set de usuarios aceptados ────────
+    private final Map<String, Set<String>> chatPermissions = new ConcurrentHashMap<>();
 
     // ── Protección anti fuerza bruta ──────────────────────────────────────────
     /** ip → número de intentos fallidos consecutivos */
@@ -42,7 +47,7 @@ public class InfoHilos {
     private final Map<String, Long>          ipBloqueadaHasta = new ConcurrentHashMap<>();
 
     private static final int  MAX_INTENTOS   = 5;
-    private static final long BLOQUEO_MS     = 5 * 60 * 1000L;  // 5 minutos
+    private static final long BLOQUEO_MS     = 30 * 1000L;  // 30 segundos
 
     // =========================================================================
     // Constructor
@@ -98,7 +103,11 @@ public class InfoHilos {
     // Canales
     // =========================================================================
 
-    public synchronized void         agregarCanal(String nombre, List<String> miembros) { canales.put(nombre, miembros); }
+    public synchronized void         agregarCanal(String nombre, List<String> miembros) { 
+        canales.put(nombre, miembros);
+        fechasCreacionCanal.putIfAbsent(nombre, LocalDateTime.now());
+    }
+    public synchronized LocalDateTime obtenerFechaCreacionCanal(String nombre) { return fechasCreacionCanal.get(nombre); }
     public synchronized List<String> obtenerMiembrosCanal(String nombre) { return canales.get(nombre); }
     public synchronized boolean      existeCanal(String nombre)          { return canales.containsKey(nombre); }
     public synchronized Map<String, List<String>> getCanales()           { return new ConcurrentHashMap<>(canales); }
@@ -142,6 +151,20 @@ public class InfoHilos {
     }
 
     // =========================================================================
+    // Permisos de Chat
+    // =========================================================================
+
+    public synchronized void concederPermisoChat(String u1, String u2) {
+        chatPermissions.computeIfAbsent(u1, k -> ConcurrentHashMap.newKeySet()).add(u2);
+        chatPermissions.computeIfAbsent(u2, k -> ConcurrentHashMap.newKeySet()).add(u1);
+    }
+
+    public synchronized boolean tienePermisoChat(String u1, String u2) {
+        Set<String> p1 = chatPermissions.get(u1);
+        return p1 != null && p1.contains(u2);
+    }
+
+    // =========================================================================
     // Protección anti fuerza bruta (DoS)
     // =========================================================================
 
@@ -175,6 +198,14 @@ public class InfoHilos {
     public synchronized int getIntentosFallidos(String ip) {
         AtomicInteger cnt = intentosFallidos.get(ip);
         return cnt != null ? cnt.get() : 0;
+    }
+
+    /** Segundos restantes de bloqueo para una IP (0 si no está bloqueada). */
+    public synchronized long segundosRestantesBloqueo(String ip) {
+        Long hasta = ipBloqueadaHasta.get(ip);
+        if (hasta == null) return 0;
+        long restantes = (hasta - System.currentTimeMillis()) / 1000;
+        return Math.max(restantes, 0);
     }
 
     /** Resetea el contador de intentos tras un login correcto. */

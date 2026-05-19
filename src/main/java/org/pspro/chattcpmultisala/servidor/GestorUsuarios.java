@@ -11,8 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
- * Gestiona el archivo de usuarios con contraseñas hasheadas (SHA-256 + salt)
- * y roles (ordinario / moderador).
+ * Gestiona el archivo de usuarios con contraseñas hasheadas (SHA-256 + salt) y roles.
+ *
  *
  * Formato de línea en usuarios.dat:
  *   nickname:salt:sha256(salt+password):role

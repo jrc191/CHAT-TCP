@@ -56,12 +56,16 @@ public class DatosMensaje implements Serializable {
     private String  reason;
     private String  password;   // Solo en LOGIN_REGISTER; NUNCA se reenvía
     private UserProfile userProfile;
+    private java.util.Map<String, Object> contextData;
 
     // ── Constructores ─────────────────────────────────────────────────────────
 
     public DatosMensaje() {}
 
     // ── Getters / Setters ─────────────────────────────────────────────────────
+
+    public java.util.Map<String, Object> getContextData() { return contextData; }
+    public void setContextData(java.util.Map<String, Object> contextData) { this.contextData = contextData; }
 
     public TipoMensaje getTipo() { return tipo; }
     public void setTipo(TipoMensaje tipo) { this.tipo = tipo; }
