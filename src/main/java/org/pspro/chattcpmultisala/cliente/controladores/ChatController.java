@@ -660,7 +660,8 @@ public class ChatController {
                         "Desbanear usuario (Global/Canal)",
                         "Suspender canal",
                         "Reactivar canal",
-                        "Promover temporalmente"));
+                        "Promover temporalmente",
+                        "Revocar promoción temporal"));
         dialog.setTitle("Moderación");
         dialog.setHeaderText("Elige una acción de moderación:");
         dialog.showAndWait().ifPresent(accion -> {
@@ -670,6 +671,7 @@ public class ChatController {
                 case "Suspender canal"           -> suspenderCanal(true);
                 case "Reactivar canal"           -> suspenderCanal(false);
                 case "Promover temporalmente"    -> mostrarDialogoPromocion();
+                case "Revocar promoción temporal" -> mostrarDialogoRevocarPromocion();
             }
         });
     }
@@ -837,6 +839,7 @@ public class ChatController {
     }
 
     private void mostrarDialogoPromocion() {
+        // 1. Seleccionar usuario
         List<String> candidatos = usuariosEnLinea.stream()
                 .filter(u -> !u.equals(nombreUsuario)).toList();
         if (candidatos.isEmpty()) { mostrarAlertaError("No hay usuarios disponibles."); return; }
@@ -844,18 +847,98 @@ public class ChatController {
         ChoiceDialog<String> d = new ChoiceDialog<>(candidatos.get(0), candidatos);
         d.setTitle("Promover temporal"); d.setHeaderText("Selecciona usuario a promover:");
         d.showAndWait().ifPresent(objetivo -> {
-            TextInputDialog td = new TextInputDialog("300");
-            td.setTitle("Duración"); td.setHeaderText("Segundos de promoción (máx. 3600):");
-            td.showAndWait().ifPresent(segsStr -> {
+            // 2. Seleccionar canal
+            List<String> canales = new ArrayList<>();
+            canales.add("GLOBAL (GENERAL)");
+            canales.addAll(canalesActivos);
+            canales.add("Otro canal...");
+
+            ChoiceDialog<String> dCanal = new ChoiceDialog<>("GLOBAL (GENERAL)", canales);
+            dCanal.setTitle("Promover temporal");
+            dCanal.setHeaderText("¿En qué canal quieres promover a " + objetivo + "?");
+
+            dCanal.showAndWait().ifPresent(seleccion -> {
+                String canal;
+                if ("Otro canal...".equals(seleccion)) {
+                    TextInputDialog tid = new TextInputDialog();
+                    tid.setTitle("Promover temporal");
+                    tid.setHeaderText("Escribe el nombre del canal:");
+                    Optional<String> res = tid.showAndWait();
+                    if (res.isEmpty() || res.get().isBlank()) return;
+                    canal = res.get().trim();
+                } else if ("GLOBAL (GENERAL)".equals(seleccion)) {
+                    canal = "GENERAL";
+                } else {
+                    canal = seleccion;
+                }
+
+                TextInputDialog td = new TextInputDialog("300");
+                td.setTitle("Duración"); td.setHeaderText("Segundos de promoción (máx. 3600):");
+                td.showAndWait().ifPresent(segsStr -> {
+                    try {
+                        long segs = Long.parseLong(segsStr.trim());
+                        DatosMensaje msg = new DatosMensaje();
+                        msg.setTipo(TipoMensaje.PROMOVER_TEMPORAL);
+                        msg.setRemitente(nombreUsuario);
+                        msg.setDestino(objetivo);
+                        msg.setContenido(canal);
+                        msg.setSegundosPromocion(segs);
+                        enviarAlServidorExterno(msg);
+                    } catch (NumberFormatException | IOException e) { e.printStackTrace(); }
+                });
+            });
+        });
+    }
+
+    private void mostrarDialogoRevocarPromocion() {
+        if (!"MODERATOR".equals(rolUsuario)) {
+            mostrarAlertaError("Solo los administradores globales pueden revocar promociones.");
+            return;
+        }
+
+        // 1. Seleccionar usuario
+        List<String> usuarios = new ArrayList<>(usuariosEnLinea);
+        usuarios.remove(nombreUsuario);
+        if (usuarios.isEmpty()) { mostrarAlertaError("No hay otros usuarios conectados."); return; }
+
+        ChoiceDialog<String> dUser = new ChoiceDialog<>(usuarios.get(0), usuarios);
+        dUser.setTitle("Revocar promoción");
+        dUser.setHeaderText("Selecciona el usuario al que quitar permisos:");
+        
+        dUser.showAndWait().ifPresent(objetivo -> {
+            // 2. Seleccionar canal
+            List<String> canales = new ArrayList<>();
+            canales.add("GLOBAL (GENERAL)");
+            canales.addAll(canalesActivos);
+            canales.add("Otro canal...");
+
+            ChoiceDialog<String> dCanal = new ChoiceDialog<>("GLOBAL (GENERAL)", canales);
+            dCanal.setTitle("Revocar promoción");
+            dCanal.setHeaderText("¿En qué canal quieres revocar la promoción a " + objetivo + "?");
+
+            dCanal.showAndWait().ifPresent(seleccion -> {
+                String canal;
+                if ("Otro canal...".equals(seleccion)) {
+                    TextInputDialog tid = new TextInputDialog();
+                    tid.setTitle("Revocar promoción");
+                    tid.setHeaderText("Escribe el nombre del canal:");
+                    Optional<String> res = tid.showAndWait();
+                    if (res.isEmpty() || res.get().isBlank()) return;
+                    canal = res.get().trim();
+                } else if ("GLOBAL (GENERAL)".equals(seleccion)) {
+                    canal = "GENERAL";
+                } else {
+                    canal = seleccion;
+                }
+
                 try {
-                    long segs = Long.parseLong(segsStr.trim());
                     DatosMensaje msg = new DatosMensaje();
-                    msg.setTipo(TipoMensaje.PROMOVER_TEMPORAL);
+                    msg.setTipo(TipoMensaje.REVOCAR_PROMOCION);
                     msg.setRemitente(nombreUsuario);
                     msg.setDestino(objetivo);
-                    msg.setSegundosPromocion(segs);
+                    msg.setContenido(canal);
                     enviarAlServidorExterno(msg);
-                } catch (NumberFormatException | IOException e) { e.printStackTrace(); }
+                } catch (IOException e) { e.printStackTrace(); }
             });
         });
     }
@@ -1026,42 +1109,32 @@ public class ChatController {
         if (texto == null) return;
         ultimaNotificacionSistema = texto;
 
-        // Detectar si nos han dado permisos de moderador temporal
-        if (texto.contains("Has recibido permisos de moderador temporal en el canal")) {
-            int start = texto.indexOf("'") + 1;
-            int end = texto.indexOf("'", start);
-            if (start > 0 && end > start) {
-                String canal = texto.substring(start, end);
-                canalesDondeSoyModTemporal.add(canal);
-                Platform.runLater(() -> {
-                    dibujarContactosActivos();
-                    if (destinatarioActual.equals(canal)) {
-                        refrescarChatActual(); // Re-renderizar para habilitar clicks
-                    }
-                });
-            }
-        }
-
-        // Detectar si han expirado
-        if (texto.contains("Tu promoción temporal de moderador en el canal") && texto.contains("ha expirado")) {
-            int start = texto.indexOf("'") + 1;
-            int end = texto.indexOf("'", start);
-            if (start > 0 && end > start) {
-                String canal = texto.substring(start, end);
-                canalesDondeSoyModTemporal.remove(canal);
-                Platform.runLater(() -> {
-                    dibujarContactosActivos();
-                    if (destinatarioActual.equals(canal)) {
-                        refrescarChatActual(); // Re-renderizar para quitar clicks
-                    }
-                });
-            }
-        }
-
         DatosMensaje msg = new DatosMensaje();
         msg.setRemitente("SISTEMA");
         msg.setContenido(texto);
         registrarMensaje(msg, sala, false);
+    }
+
+    public void agregarPromocionLocal(String canal) {
+        if (canal == null) return;
+        canalesDondeSoyModTemporal.add(canal);
+        Platform.runLater(() -> {
+            dibujarContactosActivos();
+            if (destinatarioActual.equals(canal)) {
+                cambiarDestinatario(canal); // Actualiza botones de acción
+            }
+        });
+    }
+
+    public void removerPromocionLocal(String canal) {
+        if (canal == null) return;
+        canalesDondeSoyModTemporal.remove(canal);
+        Platform.runLater(() -> {
+            dibujarContactosActivos();
+            if (destinatarioActual.equals(canal)) {
+                cambiarDestinatario(canal); // Actualiza botones de acción
+            }
+        });
     }
     // =========================================================================
     // CANALES

@@ -114,13 +114,15 @@ public class HiloCliente extends Thread {
                         Platform.runLater(() -> chatController.registrarMensajeSistema(
                                 "[Canal] " + mensaje.getContenido()));
 
-                    case PROMOVER_TEMPORAL ->
-                        Platform.runLater(() -> chatController.registrarMensajeSistema(
-                                "⭐ " + mensaje.getContenido()));
+                    case PROMOVER_TEMPORAL -> Platform.runLater(() -> {
+                        chatController.registrarMensajeSistema("⭐ " + mensaje.getContenido(), mensaje.getDestino());
+                        chatController.agregarPromocionLocal(mensaje.getDestino());
+                    });
 
-                    case REVOCAR_PROMOCION ->
-                        Platform.runLater(() -> chatController.registrarMensajeSistema(
-                                "ℹ️ " + mensaje.getContenido()));
+                    case REVOCAR_PROMOCION -> Platform.runLater(() -> {
+                        chatController.registrarMensajeSistema("ℹ️ " + mensaje.getContenido(), mensaje.getDestino());
+                        chatController.removerPromocionLocal(mensaje.getDestino());
+                    });
 
                     case PROFILE_RESPONSE -> {
                         // Recibimos respuesta de perfil

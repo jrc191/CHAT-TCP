@@ -103,6 +103,7 @@ public class HiloServidorChat extends Thread {
                     case DESBANEAR_USUARIO      -> procesarDesbanear(mensaje);
                     case SUSPENDER_CANAL       -> procesarSuspenderCanal(mensaje);
                     case PROMOVER_TEMPORAL     -> procesarPromoverTemporal(mensaje);
+                    case REVOCAR_PROMOCION     -> procesarRevocarPromocionManual(mensaje);
                     case SYNC_PROFILE          -> procesarSyncProfile(mensaje);
                     case REQUEST_PROFILE       -> procesarRequestProfileServer(mensaje);
                     case PROFILE_RESPONSE      -> procesarReenvioPerfil(mensaje);
@@ -744,6 +745,33 @@ public class HiloServidorChat extends Thread {
 
         System.out.println("[MODERACIÓN] " + nombreUsuario + " promovió temporalmente a " + objetivo
                 + " en " + canal + " por " + segundos + "s.");
+    }
+
+    private void procesarRevocarPromocionManual(DatosMensaje mensaje) {
+        if (gestorUsuarios.obtenerRol(nombreUsuario) != GestorUsuarios.Rol.MODERATOR) {
+            enviarMensajeSistema("Solo los administradores globales pueden revocar promociones manualmente.");
+            return;
+        }
+        String objetivo = mensaje.getDestino();
+        String canal    = mensaje.getContenido();
+        String key = objetivo + ":" + canal;
+
+        if (promocionesTempo.remove(key) != null) {
+            UsuarioConectado uc = infoh.obtenerUsuario(objetivo);
+            if (uc != null) {
+                DatosMensaje rev = new DatosMensaje();
+                rev.setTipo(TipoMensaje.REVOCAR_PROMOCION);
+                rev.setRemitente("SISTEMA");
+                rev.setDestino(canal);
+                rev.setContenido("Tu promoción temporal de moderador en el canal '" + canal + "' ha sido revocada por un administrador.");
+                rev.setTimestamp(LocalDateTime.now());
+                enviarSeguro(uc.getSalida(), rev);
+            }
+            enviarMensajeSistema("Promoción de " + objetivo + " en " + canal + " revocada.");
+            System.out.println("[MODERACIÓN] " + nombreUsuario + " revocó manualmente la promoción de " + objetivo + " en " + canal);
+        } else {
+            enviarMensajeSistema("No hay una promoción activa para " + objetivo + " en el canal " + canal);
+        }
     }
 
     private void procesarSyncProfile(DatosMensaje mensaje) {
