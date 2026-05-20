@@ -100,6 +100,7 @@ public class HiloServidorChat extends Thread {
                     case ELIMINAR_ARCHIVO      -> procesarEliminarArchivo(mensaje);
                     case BORRAR_MENSAJE        -> procesarBorrarMensaje(mensaje);
                     case BANEAR_USUARIO        -> procesarBanear(mensaje);
+                    case DESBANEAR_USUARIO      -> procesarDesbanear(mensaje);
                     case SUSPENDER_CANAL       -> procesarSuspenderCanal(mensaje);
                     case PROMOVER_TEMPORAL     -> procesarPromoverTemporal(mensaje);
                     case SYNC_PROFILE          -> procesarSyncProfile(mensaje);
@@ -266,6 +267,10 @@ public class HiloServidorChat extends Thread {
     // =========================================================================
 
     private void procesarMensajeGeneral(DatosMensaje mensaje) {
+        if (infoh.estaBaneado("GENERAL", nombreUsuario)) {
+            enviarMensajeSistema("No puedes enviar mensajes al canal GENERAL porque has sido baneado globalmente.");
+            return;
+        }
         mensaje.setRemitente(nombreUsuario);
         mensaje.setDestino("GENERAL");
         if (mensaje.getTimestamp() == null) mensaje.setTimestamp(LocalDateTime.now());
@@ -346,16 +351,28 @@ public class HiloServidorChat extends Thread {
     }
     private void procesarSolicitudCanal(DatosMensaje mensaje) {
         mensaje.setRemitente(nombreUsuario);
-        UsuarioConectado dest = infoh.obtenerUsuario(mensaje.getDestino());
+        String canal = mensaje.getContenido();
+        String objetivo = mensaje.getDestino();
+
+        if (infoh.estaBaneado(canal, objetivo)) {
+            enviarMensajeSistema("El usuario " + objetivo + " está baneado del canal '" + canal + "'.");
+            return;
+        }
+
+        UsuarioConectado dest = infoh.obtenerUsuario(objetivo);
         if (dest != null) {
             enviarSeguro(dest.getSalida(), mensaje);
-            enviarMensajeSistema("Invitación al canal " + mensaje.getContenido() + " enviada a " + mensaje.getDestino());
+            enviarMensajeSistema("Invitación al canal " + canal + " enviada a " + objetivo);
         }
     }
 
     private void procesarRespuestaCanal(DatosMensaje mensaje) {
         if (mensaje.isSuccess()) {
             String canal = mensaje.getContenido();
+            if (infoh.estaBaneado(canal, nombreUsuario)) {
+                enviarMensajeSistema("No puedes unirte al canal '" + canal + "' porque has sido baneado.");
+                return;
+            }
             List<String> miembros = infoh.obtenerMiembrosCanal(canal);
             if (miembros != null && !miembros.contains(nombreUsuario)) {
                 List<String> nuevos = new ArrayList<>(miembros);
@@ -404,6 +421,10 @@ public class HiloServidorChat extends Thread {
         List<String> actuales  = infoh.obtenerMiembrosCanal(nombreCanal);
         Set<String>  setActual = new HashSet<>(actuales);
         for (String m : nuevos) {
+            if (infoh.estaBaneado(nombreCanal, m)) {
+                enviarMensajeSistema("El usuario " + m + " está baneado de este canal.");
+                continue;
+            }
             if (setActual.add(m)) notificarUnionCanal(m, nombreCanal, null, false);
         }
         infoh.agregarCanal(nombreCanal, List.copyOf(setActual));
@@ -411,6 +432,10 @@ public class HiloServidorChat extends Thread {
 
     private void procesarMensajeCanal(DatosMensaje mensaje) {
         String nombreCanal = mensaje.getDestino();
+        if (infoh.estaBaneado(nombreCanal, nombreUsuario)) {
+            enviarMensajeSistema("No puedes participar en el canal '" + nombreCanal + "' porque has sido baneado.");
+            return;
+        }
         List<String> miembros = infoh.obtenerMiembrosCanal(nombreCanal);
 
         if (miembros == null) {
@@ -437,12 +462,14 @@ public class HiloServidorChat extends Thread {
     // =========================================================================
 
     private void procesarEnvioArchivo(DatosMensaje mensaje) {
+        String destino = mensaje.getDestino();
+        if (infoh.estaBaneado(destino, nombreUsuario)) {
+            enviarMensajeSistema("No puedes enviar archivos a '" + destino + "' porque has sido baneado.");
+            return;
+        }
         mensaje.setRemitente(nombreUsuario);
         if (mensaje.getTimestamp() == null) mensaje.setTimestamp(LocalDateTime.now());
         if (mensaje.getArchivoId()  == null) mensaje.setArchivoId(UUID.randomUUID().toString());
-
-        // Los datos del archivo llegan ya cifrados desde el cliente (AES-256-GCM)
-        String destino = mensaje.getDestino();
 
         if ("GENERAL".equals(destino)) {
             // Guardar en tablón para poder borrarlo después
@@ -576,16 +603,23 @@ public class HiloServidorChat extends Thread {
         }
         String objetivo = mensaje.getDestino();
 
-        // RESTRICCIÓN: No se puede banear a un Administrador global si el que banea es temporal o de canal
+        // RESTRICCIÓN: No se puede banear a un Administrador global
         if (gestorUsuarios.obtenerRol(objetivo) == GestorUsuarios.Rol.MODERATOR) {
             enviarMensajeSistema("No tienes autoridad para expulsar a un Administrador global.");
+            return;
+        }
+
+        // RESTRICCIÓN: No se puede banear al dueño/moderador permanente del canal
+        if (canal != null && objetivo.equals(infoh.obtenerModeradorCanal(canal))) {
+            enviarMensajeSistema("No puedes expulsar al dueño del canal.");
             return;
         }
 
         UsuarioConectado ucObj = infoh.obtenerUsuario(objetivo);
         if (ucObj == null) { enviarMensajeSistema("Usuario no encontrado."); return; }
 
-        // Eliminar del canal
+        // Registrar en blacklist y eliminar del canal
+        infoh.banearDeCanal(canal, objetivo);
         List<String> miembros = infoh.obtenerMiembrosCanal(canal);
         if (miembros != null) {
             miembros.remove(objetivo);
@@ -604,6 +638,44 @@ public class HiloServidorChat extends Thread {
         // Notificar al canal
         enviarNotificacionCanal(canal, objetivo + " ha sido expulsado por el moderador " + nombreUsuario + ".");
         System.out.println("[MODERACIÓN] " + nombreUsuario + " baneó a " + objetivo + " del canal " + canal);
+    }
+
+    private void procesarDesbanear(DatosMensaje mensaje) {
+        String canal    = mensaje.getContenido();
+        if (!esModeradorEfectivo(canal)) {
+            enviarMensajeSistema("No tienes permisos de moderador en este canal.");
+            return;
+        }
+        String objetivo = mensaje.getDestino();
+        infoh.unbanDeCanal(canal, objetivo);
+        
+        // RE-ADMISIÓN AUTOMÁTICA: Si no es el GENERAL, lo volvemos a meter en la lista de miembros
+        if (!"GENERAL".equals(canal)) {
+            List<String> miembros = infoh.obtenerMiembrosCanal(canal);
+            if (miembros != null && !miembros.contains(objetivo)) {
+                List<String> nuevos = new ArrayList<>(miembros);
+                nuevos.add(objetivo);
+                infoh.agregarCanal(canal, nuevos);
+                
+                // Notificar al usuario para que su cliente recupere el canal
+                notificarUnionCanal(objetivo, canal, nuevos, false);
+            }
+        }
+
+        enviarMensajeSistema("Has desbaneado a " + objetivo + " del canal '" + canal + "'.");
+
+        // Notificar al usuario desbaneado
+        UsuarioConectado ucObj = infoh.obtenerUsuario(objetivo);
+        if (ucObj != null) {
+            DatosMensaje notif = new DatosMensaje();
+            notif.setTipo(TipoMensaje.NOTIFICACION_SISTEMA);
+            notif.setRemitente("SISTEMA");
+            notif.setDestino(canal);
+            notif.setContenido("Has sido desbaneado del canal '" + canal + "'. Ya puedes participar de nuevo.");
+            enviarSeguro(ucObj.getSalida(), notif);
+        }
+        
+        System.out.println("[MODERACIÓN] " + nombreUsuario + " desbaneó a " + objetivo + " del canal " + canal);
     }
 
     private void procesarSuspenderCanal(DatosMensaje mensaje) {
@@ -725,11 +797,12 @@ public class HiloServidorChat extends Thread {
 
         if ("GENERAL".equals(destino)) {
             data.put("type", "SALA");
-            data.put("name", "Sala de Chat General");
+            data.put("name", "GENERAL");
             data.put("description", "Canal público principal del servidor.");
             List<String> online = infoh.getNombresUsuarios();
             data.put("members", online);
             data.put("online_count", online.size());
+            data.put("banned", infoh.obtenerBaneados("GENERAL"));
         } else if (infoh.existeCanal(destino)) {
             data.put("type", "CANAL");
             data.put("name", destino);
@@ -737,6 +810,7 @@ public class HiloServidorChat extends Thread {
             data.put("moderator", infoh.obtenerModeradorCanal(destino));
             List<String> miembros = infoh.obtenerMiembrosCanal(destino);
             data.put("members", miembros);
+            data.put("banned", infoh.obtenerBaneados(destino));
             long online = miembros.stream().filter(infoh::existeUsuario).count();
             data.put("online_count", online);
         } else {

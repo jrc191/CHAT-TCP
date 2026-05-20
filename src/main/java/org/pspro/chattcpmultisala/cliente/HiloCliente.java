@@ -101,9 +101,14 @@ public class HiloCliente extends Thread {
                     }
 
                     // ── Moderación ────────────────────────────────────────────
-                    case BANEAR_USUARIO ->
-                        Platform.runLater(() -> chatController.registrarMensajeSistema(
-                                "[Moderación] " + mensaje.getContenido()));
+                    case BANEAR_USUARIO -> Platform.runLater(() -> {
+                        chatController.registrarMensajeSistema("[Moderación] " + mensaje.getContenido(), mensaje.getDestino());
+                        chatController.removerCanalLocal(mensaje.getDestino());
+                    });
+
+                    case NOTIFICACION_SISTEMA -> Platform.runLater(() -> {
+                        chatController.registrarMensaje(mensaje, mensaje.getDestino(), false);
+                    });
 
                     case SUSPENDER_CANAL ->
                         Platform.runLater(() -> chatController.registrarMensajeSistema(

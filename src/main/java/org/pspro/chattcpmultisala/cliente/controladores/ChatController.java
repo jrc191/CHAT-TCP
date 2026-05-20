@@ -28,7 +28,6 @@ import java.util.*;
 
 /**
  * Controlador principal del chat.
- *
  * Novedades:
  *  - Recibe y expone el rol del usuario (USER / MODERATOR).
  *  - Cifra los mensajes privados y de canal antes de enviarlos.
@@ -97,9 +96,11 @@ public class ChatController {
     private static final int   MAX_INTENTOS = 3;
 
     private String              destinatarioActual    = "GENERAL";
+    private String              ultimaNotificacionSistema = "";
     private final Map<String, List<Node>> historialesChat    = new HashMap<>();
     private final Set<String>  chatsActivos          = new LinkedHashSet<>();
     private final Set<String>  canalesActivos         = new HashSet<>();
+    private final Map<String, String>  moderadoresCanales    = new HashMap<>();
     private final Map<String, List<String>> miembrosCanales  = new HashMap<>();
     private final List<String> usuariosEnLinea        = new ArrayList<>();
     private final Set<String>  chatsConMensajesNuevos = new HashSet<>();
@@ -288,14 +289,23 @@ public class ChatController {
     }
 
     public boolean esModerador() {
-        return "MODERATOR".equals(rolUsuario) || esModeradorEfectivo(destinatarioActual);
+        if ("MODERATOR".equals(rolUsuario)) return true;
+        if (!canalesDondeSoyModTemporal.isEmpty()) return true;
+        for (String m : moderadoresCanales.values()) {
+            if (nombreUsuario.equals(m)) return true;
+        }
+        return false;
     }
 
     private final Set<String> canalesDondeSoyModTemporal = new HashSet<>();
 
     private boolean esModeradorEfectivo(String canal) {
         if ("MODERATOR".equals(rolUsuario)) return true;
-        return canal != null && canalesDondeSoyModTemporal.contains(canal);
+        if (canal == null) return false;
+        // Moderador permanente/dueño
+        if (nombreUsuario.equals(moderadoresCanales.get(canal))) return true;
+        // Moderador temporal
+        return canalesDondeSoyModTemporal.contains(canal);
     }
 
     // =========================================================================
@@ -645,8 +655,9 @@ public class ChatController {
     private void mostrarMenuModeracion() {
         if (!esModerador()) { mostrarAlertaError("Sin permisos de moderador."); return; }
 
-        ChoiceDialog<String> dialog = new ChoiceDialog<>("Banear usuario",
-                List.of("Banear usuario del canal",
+        ChoiceDialog<String> dialog = new ChoiceDialog<>("Banear usuario (Global/Canal)",
+                List.of("Banear usuario (Global/Canal)",
+                        "Desbanear usuario (Global/Canal)",
                         "Suspender canal",
                         "Reactivar canal",
                         "Promover temporalmente"));
@@ -654,7 +665,8 @@ public class ChatController {
         dialog.setHeaderText("Elige una acción de moderación:");
         dialog.showAndWait().ifPresent(accion -> {
             switch (accion) {
-                case "Banear usuario del canal"  -> mostrarDialogoBanear();
+                case "Banear usuario (Global/Canal)"  -> mostrarDialogoBanear();
+                case "Desbanear usuario (Global/Canal)" -> mostrarDialogoDesbanear();
                 case "Suspender canal"           -> suspenderCanal(true);
                 case "Reactivar canal"           -> suspenderCanal(false);
                 case "Promover temporalmente"    -> mostrarDialogoPromocion();
@@ -663,26 +675,151 @@ public class ChatController {
     }
 
     private void mostrarDialogoBanear() {
-        if (!canalesActivos.contains(destinatarioActual)) {
-            mostrarAlertaError("Solo puedes banear usuarios en un canal.");
-            return;
-        }
-        List<String> candidatos = miembrosCanales.getOrDefault(destinatarioActual, List.of())
-                .stream().filter(u -> !u.equals(nombreUsuario)).toList();
-        if (candidatos.isEmpty()) { mostrarAlertaError("No hay usuarios que banear."); return; }
+        try {
+            // 1. Preguntar por el usuario. Ofrecemos los online que NO sean moderadores.
+            List<String> online = new ArrayList<>(usuariosEnLinea);
+            online.remove(nombreUsuario);
+            
+            // FILTRO: No se puede banear a administradores globales ni a moderadores de canales actuales
+            online.removeIf(u -> {
+                // Si es moderador global (sabemos esto por su rol si estuviéramos recibiendo el rol de otros, 
+                // pero como no lo tenemos para todos, al menos protegemos a los que conocemos como mods de canal)
+                for (String mod : moderadoresCanales.values()) {
+                    if (u.equals(mod)) return true;
+                }
+                return false;
+            });
 
-        ChoiceDialog<String> d = new ChoiceDialog<>(candidatos.get(0), candidatos);
-        d.setTitle("Banear usuario"); d.setHeaderText("Selecciona el usuario a expulsar:");
-        d.showAndWait().ifPresent(objetivo -> {
-            try {
-                DatosMensaje msg = new DatosMensaje();
-                msg.setTipo(TipoMensaje.BANEAR_USUARIO);
-                msg.setRemitente(nombreUsuario);
-                msg.setDestino(objetivo);
-                msg.setContenido(destinatarioActual);
-                enviarAlServidorExterno(msg);
-            } catch (IOException e) { e.printStackTrace(); }
-        });
+            online.add(0, "Otro (Escribir nombre)...");
+
+            ChoiceDialog<String> userDialog = new ChoiceDialog<>(online.get(0), online);
+            userDialog.setTitle("Banear usuario");
+            userDialog.setHeaderText("¿A quién quieres banear?");
+            userDialog.setContentText("Selecciona o elige 'Otro':");
+
+            userDialog.showAndWait().ifPresent(seleccionUser -> {
+                String objetivo;
+                if ("Otro (Escribir nombre)...".equals(seleccionUser)) {
+                    TextInputDialog tid = new TextInputDialog();
+                    tid.setTitle("Banear usuario");
+                    tid.setHeaderText("Introduce el nombre del usuario a banear:");
+                    Optional<String> res = tid.showAndWait();
+                    if (res.isEmpty() || res.get().isBlank()) return;
+                    objetivo = res.get().trim();
+                } else {
+                    objetivo = seleccionUser;
+                }
+
+                // Seleccionar el ámbito
+                List<String> scopes = new ArrayList<>();
+                if ("MODERATOR".equals(rolUsuario)) {
+                    scopes.add("GLOBAL (GENERAL)");
+                    scopes.addAll(canalesActivos);
+                    scopes.add("Otro canal (Escribir nombre)...");
+                } else {
+                    for (String c : canalesActivos) {
+                        if (esModeradorEfectivo(c)) scopes.add(c);
+                    }
+                }
+
+                if (scopes.isEmpty()) {
+                    mostrarAlertaError("No tienes permisos de moderación activos en ningún canal.");
+                    return;
+                }
+
+                ChoiceDialog<String> scopeDialog = new ChoiceDialog<>(scopes.get(0), scopes);
+
+                scopeDialog.setTitle("Ámbito del baneo");
+                scopeDialog.setHeaderText("¿De dónde quieres banear a " + objetivo + "?");
+                scopeDialog.setContentText("Selecciona el canal:");
+
+                scopeDialog.showAndWait().ifPresent(seleccionScope -> {
+                    String canalDestino;
+                    if ("Otro canal (Escribir nombre)...".equals(seleccionScope)) {
+                        TextInputDialog tid = new TextInputDialog();
+                        tid.setTitle("Ámbito del baneo");
+                        tid.setHeaderText("Introduce el nombre del canal:");
+                        Optional<String> res = tid.showAndWait();
+                        if (res.isEmpty() || res.get().isBlank()) return;
+                        canalDestino = res.get().trim();
+                    } else if ("GLOBAL (GENERAL)".equals(seleccionScope)) {
+                        canalDestino = "GENERAL";
+                    } else {
+                        canalDestino = seleccionScope;
+                    }
+
+                    try {
+                        DatosMensaje msg = new DatosMensaje();
+                        msg.setTipo(TipoMensaje.BANEAR_USUARIO);
+                        msg.setRemitente(nombreUsuario);
+                        msg.setDestino(objetivo);
+                        msg.setContenido(canalDestino);
+                        enviarAlServidorExterno(msg);
+                    } catch (IOException e) {
+                        mostrarAlertaError("Error al enviar petición de baneo: " + e.getMessage());
+                    }
+                });
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+            mostrarAlertaError("Error inesperado en el diálogo de baneo.");
+        }
+    }
+
+    private void mostrarDialogoDesbanear() {
+        try {
+            // Seleccionar el ámbito
+            List<String> scopes = new ArrayList<>();
+            if ("MODERATOR".equals(rolUsuario)) {
+                scopes.add("GLOBAL (GENERAL)");
+                scopes.addAll(canalesActivos);
+                scopes.add("Otro canal (Escribir nombre)...");
+            } else {
+                for (String c : canalesActivos) {
+                    if (esModeradorEfectivo(c)) scopes.add(c);
+                }
+            }
+
+            if (scopes.isEmpty()) {
+                mostrarAlertaError("No tienes permisos de moderación activos en ningún canal.");
+                return;
+            }
+
+            ChoiceDialog<String> scopeDialog = new ChoiceDialog<>(scopes.get(0), scopes);
+
+            scopeDialog.setTitle("Desbanear usuario");
+            scopeDialog.setHeaderText("¿De dónde quieres consultar los baneados?");
+            scopeDialog.setContentText("Selecciona el canal:");
+
+            scopeDialog.showAndWait().ifPresent(seleccion -> {
+                String canalDestino;
+                if ("Otro canal (Escribir nombre)...".equals(seleccion)) {
+                    TextInputDialog tid = new TextInputDialog();
+                    tid.setTitle("Desbanear usuario");
+                    tid.setHeaderText("Introduce el nombre del canal:");
+                    Optional<String> res = tid.showAndWait();
+                    if (res.isEmpty() || res.get().isBlank()) return;
+                    canalDestino = res.get().trim();
+                } else if ("GLOBAL (GENERAL)".equals(seleccion)) {
+                    canalDestino = "GENERAL";
+                } else {
+                    canalDestino = seleccion;
+                }
+
+                try {
+                    DatosMensaje msg = new DatosMensaje();
+                    msg.setTipo(TipoMensaje.REQUEST_CONTEXT_INFO);
+                    msg.setDestino(canalDestino);
+                    enviarAlServidorExterno(msg);
+                    registrarMensajeSistema("Consultando lista de usuarios baneados en " + canalDestino + "...");
+                } catch (IOException e) {
+                    mostrarAlertaError("Error al solicitar lista de baneados: " + e.getMessage());
+                }
+            });
+        } catch (Exception e) {
+            e.printStackTrace();
+            mostrarAlertaError("Error inesperado en el diálogo de desbaneo.");
+        }
     }
 
     private void suspenderCanal(boolean suspender) {
@@ -747,16 +884,14 @@ public class ChatController {
                     case "➕ Nuevo Chat" -> addBotonAccion(label, e -> mostrarDialogoNuevoChat());
                     case "📢 Nuevo Canal" -> addBotonAccion(label, e -> mostrarDialogoNuevoCanal());
                     case "📎 Enviar archivo" -> addBotonAccion(label, e -> onEnviarArchivoClick(null));
+                    case "🛡️ Moderación" -> addBotonAccion(label, e -> mostrarMenuModeracion());
                 }
             },
             this::cambiarDestinatario
         );
         
-        // Botones condicionales (Moderación, Añadir Miembros) se añaden después o se integran en el manager
+        // Botón de añadir miembros (depende del canal actual)
         Platform.runLater(() -> {
-            if (esModerador())
-                addBotonAccion("🛡️ Moderación", e -> mostrarMenuModeracion());
-
             if (canalesActivos.contains(destinatarioActual))
                 addBotonAccion("👥 Añadir miembros", e -> mostrarDialogoAñadirMiembros(destinatarioActual));
         });
@@ -884,8 +1019,13 @@ public class ChatController {
     }
 
     public void registrarMensajeSistema(String texto) {
+        registrarMensajeSistema(texto, destinatarioActual);
+    }
+
+    public void registrarMensajeSistema(String texto, String sala) {
         if (texto == null) return;
-        
+        ultimaNotificacionSistema = texto;
+
         // Detectar si nos han dado permisos de moderador temporal
         if (texto.contains("Has recibido permisos de moderador temporal en el canal")) {
             int start = texto.indexOf("'") + 1;
@@ -901,7 +1041,7 @@ public class ChatController {
                 });
             }
         }
-        
+
         // Detectar si han expirado
         if (texto.contains("Tu promoción temporal de moderador en el canal") && texto.contains("ha expirado")) {
             int start = texto.indexOf("'") + 1;
@@ -921,9 +1061,8 @@ public class ChatController {
         DatosMensaje msg = new DatosMensaje();
         msg.setRemitente("SISTEMA");
         msg.setContenido(texto);
-        registrarMensaje(msg, destinatarioActual, false);
+        registrarMensaje(msg, sala, false);
     }
-
     // =========================================================================
     // CANALES
     // =========================================================================
@@ -935,9 +1074,45 @@ public class ChatController {
         Platform.runLater(this::dibujarContactosActivos);
     }
 
+    public void removerCanalLocal(String nombre) {
+        if ("GENERAL".equals(nombre)) {
+            // Si es el baneo global, no quitamos GENERAL de la lista (siempre existe)
+            // pero podríamos limpiar el historial o simplemente dejarlo.
+            // Lo más importante es que el servidor ya no le dejará escribir.
+            return; 
+        }
+        canalesActivos.remove(nombre);
+        chatsActivos.remove(nombre);
+        historialesChat.remove(nombre);
+        miembrosCanales.remove(nombre);
+        if (destinatarioActual.equals(nombre)) {
+            destinatarioActual = "GENERAL";
+        }
+        Platform.runLater(() -> {
+            dibujarContactosActivos();
+            refrescarChatActual();
+        });
+    }
+
     public void actualizarMiembrosCanal(String nombre, List<String> nuevos) {
         List<String> act = miembrosCanales.computeIfAbsent(nombre, k -> new ArrayList<>());
         for (String m : nuevos) if (!act.contains(m)) act.add(m);
+    }
+
+    private void mostrarDialogoSeleccionDesbanear(List<String> baneados, String canal) {
+        ChoiceDialog<String> d = new ChoiceDialog<>(baneados.get(0), baneados);
+        d.setTitle("Desbanear usuario");
+        d.setHeaderText("Selecciona el usuario a desbanear del canal '" + canal + "':");
+        d.showAndWait().ifPresent(objetivo -> {
+            try {
+                DatosMensaje msg = new DatosMensaje();
+                msg.setTipo(TipoMensaje.DESBANEAR_USUARIO);
+                msg.setRemitente(nombreUsuario);
+                msg.setDestino(objetivo);
+                msg.setContenido(canal);
+                enviarAlServidorExterno(msg);
+            } catch (IOException e) { e.printStackTrace(); }
+        });
     }
 
     private void mostrarDialogoNuevoCanal() {
@@ -1110,6 +1285,14 @@ public class ChatController {
         chatContainer.getChildren().clear();
         chatContainer.getChildren().addAll(historialesChat.getOrDefault(destino, List.of()));
         scrollAlFinal();
+
+        // Actualizar visibilidad de botones de moderación
+        if (btnEliminarCanal != null) {
+            boolean esCanal = canalesActivos.contains(destino);
+            boolean soyModEnEsteCanal = esModeradorEfectivo(destino);
+            btnEliminarCanal.setVisible(esCanal && soyModEnEsteCanal && !"GENERAL".equals(destino));
+            btnEliminarCanal.setManaged(btnEliminarCanal.isVisible());
+        }
     }
 
     private void actualizarUIUnread() {
@@ -1239,7 +1422,22 @@ public class ChatController {
 
     public void mostrarInfoContexto(Map<String, Object> data) {
         if (data == null || profilePanel == null) return;
+        
         Platform.runLater(() -> {
+            // Si la respuesta incluye baneados, comprobamos si estamos esperando para desbanear
+            if (data.containsKey("banned")) {
+                @SuppressWarnings("unchecked")
+                List<String> baneados = (List<String>) data.get("banned");
+                if (baneados != null && !baneados.isEmpty()) {
+                    mostrarDialogoSeleccionDesbanear(baneados, (String) data.get("name"));
+                    // Si el panel no estaba visible, no lo forzamos (solo queríamos desbanear)
+                    if (!profilePanelVisible) return;
+                } else if (data.containsKey("banned") && ultimaNotificacionSistema.startsWith("Consultando lista de usuarios baneados")) {
+                    mostrarAlerta("No hay usuarios baneados en este canal.");
+                    if (!profilePanelVisible) return;
+                }
+            }
+
             String type = (String) data.get("type");
             String name = (String) data.get("name");
             String id   = (String) data.get("id");
@@ -1283,13 +1481,16 @@ public class ChatController {
                 
                 if (profileBio != null) {
                     if ("SALA".equals(type)) profileBio.setText((String) data.get("description"));
-                    else profileBio.setText("Moderador: " + data.get("moderator"));
+                    else {
+                        String mod = (String) data.get("moderator");
+                        profileBio.setText("Moderador: " + mod);
+                        if (name != null) moderadoresCanales.put(name, mod);
+                    }
                 }
-
                 // Lista de miembros
                 if (containerMiembros != null) { containerMiembros.setVisible(true); containerMiembros.setManaged(true); }
                 contactManager.dibujarMiembros(listMiembros, (List<String>) data.get("members"), 
-                                             usuariosEnLinea, nombreUsuario, esModerador(), id, 
+                                             usuariosEnLinea, nombreUsuario, esModeradorEfectivo(id), id, 
                                              this::mostrarMenuModeracionRapida);
 
                 // Botones

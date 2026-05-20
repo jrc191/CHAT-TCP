@@ -31,6 +31,7 @@ public enum TipoMensaje {
     // MODERACIÓN
     // ========================================
     BANEAR_USUARIO,       // Moderador expulsa usuario de un canal
+    DESBANEAR_USUARIO,     // Moderador permite que un usuario vuelva al canal
     SUSPENDER_CANAL,      // Moderador suspende el canal
     PROMOVER_TEMPORAL,    // Moderador da permisos temporales a un usuario
     REVOCAR_PROMOCION,    // El tiempo expiró; se revocan permisos temporales

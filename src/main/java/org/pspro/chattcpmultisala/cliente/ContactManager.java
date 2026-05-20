@@ -39,6 +39,10 @@ public class ContactManager {
             addAccion.accept("➕ Nuevo Chat", null);
             addAccion.accept("📢 Nuevo Canal", null);
             addAccion.accept("📎 Enviar archivo", null);
+            
+            if (controller.esModerador()) {
+                addAccion.accept("🛡️ Moderación", null);
+            }
 
             Label sep = new Label("CONVERSACIONES");
             sep.setStyle("-fx-text-fill: #999; -fx-padding: 15 15 5 15; -fx-font-size: 11px; -fx-font-weight: bold;");

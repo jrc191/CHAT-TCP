@@ -33,6 +33,7 @@ public class InfoHilos {
     private final Map<String, String>             moderadoresCanal  = new ConcurrentHashMap<>();
     private final Map<String, Boolean>            canalesSuspendidos = new ConcurrentHashMap<>();
     private final Map<String, LocalDateTime>      fechasCreacionCanal = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>>        blacklists        = new ConcurrentHashMap<>();
 
     // ── Tablón de archivos: canalNombre → (archivoId → DatosMensaje) ─────────
     private final Map<String, Map<String, DatosMensaje>> archivosCanal = new ConcurrentHashMap<>();
@@ -126,6 +127,23 @@ public class InfoHilos {
     }
     public synchronized boolean canalSuspendido(String canal) {
         return Boolean.TRUE.equals(canalesSuspendidos.get(canal));
+    }
+
+    /** Blacklist management */
+    public synchronized void banearDeCanal(String canal, String usuario) {
+        blacklists.computeIfAbsent(canal, k -> ConcurrentHashMap.newKeySet()).add(usuario);
+    }
+    public synchronized boolean estaBaneado(String canal, String usuario) {
+        Set<String> banned = blacklists.get(canal);
+        return banned != null && banned.contains(usuario);
+    }
+    public synchronized void unbanDeCanal(String canal, String usuario) {
+        Set<String> banned = blacklists.get(canal);
+        if (banned != null) banned.remove(usuario);
+    }
+    public synchronized List<String> obtenerBaneados(String canal) {
+        Set<String> banned = blacklists.get(canal);
+        return banned != null ? new ArrayList<>(banned) : Collections.emptyList();
     }
 
     // =========================================================================
