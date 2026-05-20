@@ -60,6 +60,19 @@ public class HiloServidorChat extends Thread {
             enviarNotificacionATodos(entradaMsg);
             difundirListaUsuarios();
 
+            // NOTIFICAR BANEOS PREVIOS: Si el usuario ya estaba baneado de sitios, se lo decimos
+            // para que su cliente bloquee la interfaz desde el inicio.
+            if (infoh.estaBaneado("GENERAL", nombreUsuario)) {
+                DatosMensaje ban = new DatosMensaje();
+                ban.setTipo(TipoMensaje.BANEAR_USUARIO);
+                ban.setRemitente("SISTEMA");
+                ban.setDestino("GENERAL");
+                ban.setContenido("Tienes un baneo global activo en este servidor.");
+                enviarSeguro(salida, ban);
+            }
+            // También para canales específicos si fuera necesario, 
+            // aunque normalmente no vería canales de los que fue expulsado.
+
             while (true) {
                 DatosMensaje mensaje = (DatosMensaje) entrada.readObject();
 

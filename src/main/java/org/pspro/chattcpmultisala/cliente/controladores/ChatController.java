@@ -100,6 +100,7 @@ public class ChatController {
     private final Map<String, List<Node>> historialesChat    = new HashMap<>();
     private final Set<String>  chatsActivos          = new LinkedHashSet<>();
     private final Set<String>  canalesActivos         = new HashSet<>();
+    private final Set<String>  canalesDondeEstoyBaneado = new HashSet<>();
     private final Map<String, String>  moderadoresCanales    = new HashMap<>();
     private final Map<String, List<String>> miembrosCanales  = new HashMap<>();
     private final List<String> usuariosEnLinea        = new ArrayList<>();
@@ -1141,17 +1142,23 @@ public class ChatController {
     // =========================================================================
 
     public void agregarCanalLocal(String nombre, List<String> miembros) {
+        canalesDondeEstoyBaneado.remove(nombre); // Por si acaso estaba baneado antes
         canalesActivos.add(nombre);
         chatsActivos.add(nombre);
         if (miembros != null) miembrosCanales.put(nombre, new ArrayList<>(miembros));
-        Platform.runLater(this::dibujarContactosActivos);
+        Platform.runLater(() -> {
+            dibujarContactosActivos();
+            if (destinatarioActual.equals(nombre)) {
+                actualizarEstadoInput();
+            }
+        });
     }
 
     public void removerCanalLocal(String nombre) {
+        canalesDondeEstoyBaneado.add(nombre); // Marcamos como baneado
         if ("GENERAL".equals(nombre)) {
             // Si es el baneo global, no quitamos GENERAL de la lista (siempre existe)
-            // pero podríamos limpiar el historial o simplemente dejarlo.
-            // Lo más importante es que el servidor ya no le dejará escribir.
+            Platform.runLater(this::actualizarEstadoInput);
             return; 
         }
         canalesActivos.remove(nombre);
@@ -1165,6 +1172,11 @@ public class ChatController {
             dibujarContactosActivos();
             refrescarChatActual();
         });
+    }
+
+    public void removerBanLocal(String nombre) {
+        canalesDondeEstoyBaneado.remove(nombre);
+        Platform.runLater(this::actualizarEstadoInput);
     }
 
     public void actualizarMiembrosCanal(String nombre, List<String> nuevos) {
@@ -1365,6 +1377,19 @@ public class ChatController {
             boolean soyModEnEsteCanal = esModeradorEfectivo(destino);
             btnEliminarCanal.setVisible(esCanal && soyModEnEsteCanal && !"GENERAL".equals(destino));
             btnEliminarCanal.setManaged(btnEliminarCanal.isVisible());
+        }
+
+        actualizarEstadoInput();
+    }
+
+    private void actualizarEstadoInput() {
+        boolean baneado = canalesDondeEstoyBaneado.contains(destinatarioActual);
+        if (txtMensaje != null) {
+            txtMensaje.setDisable(baneado);
+            txtMensaje.setPromptText(baneado ? "Estás baneado de este canal" : "Escribe un mensaje...");
+        }
+        if (btnEnviar != null) {
+            btnEnviar.setDisable(baneado);
         }
     }
 

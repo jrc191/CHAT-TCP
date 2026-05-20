@@ -108,6 +108,9 @@ public class HiloCliente extends Thread {
 
                     case NOTIFICACION_SISTEMA -> Platform.runLater(() -> {
                         chatController.registrarMensaje(mensaje, mensaje.getDestino(), false);
+                        if (mensaje.getContenido() != null && mensaje.getContenido().contains("Has sido desbaneado")) {
+                            chatController.removerBanLocal(mensaje.getDestino());
+                        }
                     });
 
                     case SUSPENDER_CANAL ->
